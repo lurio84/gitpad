@@ -77,6 +77,56 @@ fn status_branch_ab() {
     assert_eq!(s.upstream.as_deref(), Some("origin/main"));
 }
 
+/// Un repo recién iniciado (sin commits) debe abrirse y dar un log vacío,
+/// no un error. Crea un repo temporal de verdad con `git init`.
+#[test]
+fn repo_sin_commits_da_log_vacio() {
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    let dir: PathBuf = std::env::temp_dir().join(format!(
+        "gitpad-test-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let _guard = scopeguard(&dir);
+
+    let ok = Command::new("git")
+        .args(["init", "-q", "-b", "master"])
+        .current_dir(&dir)
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if !ok {
+        eprintln!("git init no disponible, se salta el test");
+        return;
+    }
+
+    let info = super::repo::open(&dir).expect("open de repo vacío");
+    assert_eq!(info.head.as_deref(), Some("master"));
+
+    let log = super::repo::log(&dir, 0, 50).expect("log de repo vacío");
+    assert!(log.is_empty(), "un repo sin commits debe dar log vacío");
+
+    let st = super::repo::status(&dir).expect("status de repo vacío");
+    assert!(st.entries.is_empty());
+}
+
+/// Limpieza best-effort del directorio temporal al salir del test.
+fn scopeguard(dir: &std::path::Path) -> impl Drop + '_ {
+    struct G<'a>(&'a std::path::Path);
+    impl Drop for G<'_> {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(self.0);
+        }
+    }
+    G(dir)
+}
+
 /// Smoke test contra un repo real. Ejecutar con:
 ///   GITPAD_SMOKE_REPO="C:\ruta\al\repo" cargo test smoke_repo_real -- --ignored --nocapture
 #[test]

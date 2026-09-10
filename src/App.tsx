@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   getLog,
   getStatus,
@@ -21,8 +21,12 @@ function App() {
   const [status, setStatus] = useState<Status | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // Token de generación: una carga que termina tarde solo aplica su resultado
+  // si sigue siendo la más reciente. Evita que un repo lento machaque a otro.
+  const loadGen = useRef(0);
 
   const load = useCallback(async (path: string) => {
+    const gen = ++loadGen.current;
     setLoading(true);
     setError(null);
     try {
@@ -31,17 +35,22 @@ function App() {
         getLog(info.root, 0, LOG_PAGE),
         getStatus(info.root),
       ]);
+      if (gen !== loadGen.current) return;
       setRepo(info);
       setCommits(log);
       setStatus(st);
       localStorage.setItem(LAST_REPO_KEY, info.root);
     } catch (e) {
+      if (gen !== loadGen.current) return;
       setRepo(null);
       setCommits([]);
       setStatus(null);
       setError(isGitError(e) ? e.message : String(e));
+      // Un repo movido/borrado guardado en localStorage daría error en cada
+      // arranque; se olvida para no dejar la app clavada en el banner rojo.
+      localStorage.removeItem(LAST_REPO_KEY);
     } finally {
-      setLoading(false);
+      if (gen === loadGen.current) setLoading(false);
     }
   }, []);
 
@@ -62,7 +71,9 @@ function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <button onClick={onPick}>Abrir repo…</button>
+        <button onClick={onPick} disabled={loading}>
+          Abrir repo…
+        </button>
         {repo && (
           <>
             <span className="repo-name" title={repo.root}>

@@ -57,14 +57,22 @@ pub fn open(path: &Path) -> GitResult<RepoInfo> {
     let head_raw = run_git(Path::new(&root), &["symbolic-ref", "--quiet", "--short", "HEAD"]);
     let head = match head_raw {
         Ok(name) => Some(name.trim().to_string()),
-        // symbolic-ref sale con código != 0 cuando HEAD está detached.
-        Err(GitError::CommandFailed { .. }) => None,
+        // `symbolic-ref --quiet` sale con código 1 exactamente cuando HEAD está
+        // detached; cualquier otro código es un fallo real.
+        Err(GitError::CommandFailed { code: 1, .. }) => None,
         Err(e) => return Err(e),
     };
     Ok(RepoInfo { root, head })
 }
 
 pub fn log(repo: &Path, skip: u32, count: u32) -> GitResult<Vec<Commit>> {
+    // Un repo recién iniciado (o una rama huérfana) no tiene commits en HEAD y
+    // `git log` sale con código 128. Se detecta antes con `rev-parse --verify HEAD`
+    // (código 1 si no hay commit) y se devuelve una lista vacía en vez de un error.
+    if run_git(repo, &["rev-parse", "--quiet", "--verify", "HEAD"]).is_err() {
+        return Ok(Vec::new());
+    }
+
     let fmt = format!(
         "--pretty=format:%H{FS}%h{FS}%P{FS}%an{FS}%ae{FS}%aI{FS}%s{FS}%D"
     );
@@ -72,7 +80,15 @@ pub fn log(repo: &Path, skip: u32, count: u32) -> GitResult<Vec<Commit>> {
     let count_arg = format!("--max-count={count}");
     let out = run_git(
         repo,
-        &["log", "--date-order", "-z", &fmt, &skip_arg, &count_arg],
+        &[
+            "log",
+            "--date-order",
+            "--decorate=short",
+            "-z",
+            &fmt,
+            &skip_arg,
+            &count_arg,
+        ],
     )?;
 
     let mut commits = Vec::new();
@@ -121,7 +137,16 @@ fn parse_refs(raw: &str) -> Vec<String> {
 }
 
 pub fn status(repo: &Path) -> GitResult<Status> {
-    let out = run_git(repo, &["status", "--porcelain=v2", "-z", "--branch"])?;
+    let out = run_git(
+        repo,
+        &[
+            "status",
+            "--porcelain=v2",
+            "-z",
+            "--branch",
+            "--untracked-files=normal",
+        ],
+    )?;
     let tokens: Vec<String> = out
         .split('\0')
         .filter(|t| !t.is_empty())
@@ -228,7 +253,9 @@ fn parse_ordinary(rest: &str, orig_path: Option<String>) -> GitResult<StatusEntr
         // tail = "<score> <path>"
         tail.splitn(2, ' ')
             .nth(1)
-            .unwrap_or(tail)
+            .ok_or_else(|| {
+                GitError::Parse("registro de renombrado sin score y ruta".into())
+            })?
             .to_string()
     } else {
         tail.to_string()

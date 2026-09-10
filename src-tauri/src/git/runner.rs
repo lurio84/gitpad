@@ -9,12 +9,23 @@ use super::error::{GitError, GitResult};
 /// de bloquear el proceso esperando una entrada que nunca llega (no hay TTY). Así un
 /// problema de auth aparece como `CommandFailed` y no como un cuelgue invisible.
 pub fn run_git_bytes(repo: &Path, args: &[&str]) -> GitResult<Vec<u8>> {
-    let output = Command::new("git")
-        .arg("-C")
+    let mut cmd = Command::new("git");
+    cmd.arg("-C")
         .arg(repo)
         .args(args)
         .env("GIT_TERMINAL_PROMPT", "0")
-        .env("GIT_OPTIONAL_LOCKS", "0")
+        .env("GIT_OPTIONAL_LOCKS", "0");
+
+    // En Windows, lanzar git.exe desde una app GUI (subsystem "windows") crea una
+    // consola que parpadea en cada invocación. CREATE_NO_WINDOW la suprime.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    let output = cmd
         .output()
         .map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
