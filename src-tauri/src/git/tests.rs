@@ -277,6 +277,72 @@ fn stage_commit_unstage_round_trip() {
     assert!(cached.trim().is_empty(), "el índice debería estar vacío: {cached:?}");
 }
 
+/// Recorre el flujo que hace la UI (status → stage de las rutas de status →
+/// commit → status limpio → log con el commit nuevo arriba), usando solo la
+/// capa `repo`. Es lo más cerca que se puede estar del camino de los comandos
+/// Tauri sin levantar la app.
+#[test]
+fn flujo_ui_status_stage_commit() {
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    let dir: PathBuf = std::env::temp_dir().join(format!(
+        "gitpad-flujo-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let _guard = scopeguard(&dir);
+
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .args(args)
+            .current_dir(&dir)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    };
+    if !git(&["init", "-q", "-b", "master"]) {
+        eprintln!("git no disponible, se salta el test");
+        return;
+    }
+    git(&["config", "user.email", "t@t"]);
+    git(&["config", "user.name", "t"]);
+    std::fs::write(dir.join("base.txt"), "0\n").unwrap();
+    git(&["add", "-A"]);
+    git(&["commit", "-q", "-m", "base"]);
+
+    // Dos archivos nuevos + una modificación.
+    std::fs::write(dir.join("base.txt"), "0\n1\n").unwrap();
+    std::fs::write(dir.join("nuevo a.txt"), "a\n").unwrap();
+    std::fs::write(dir.join("-nuevo.txt"), "b\n").unwrap();
+
+    let info = super::repo::open(&dir).expect("open");
+    let st = super::repo::status(&dir).expect("status");
+    assert_eq!(st.entries.len(), 3);
+
+    let paths: Vec<String> = st.entries.iter().map(|e| e.path.clone()).collect();
+    super::repo::stage(&dir, &paths).expect("stage");
+    super::repo::commit(&dir, "cambios de la UI", false).expect("commit");
+
+    let st2 = super::repo::status(&dir).expect("status 2");
+    assert!(st2.entries.is_empty(), "el árbol debería quedar limpio: {st2:?}");
+
+    let log = super::repo::log(&dir, 0, 10).expect("log");
+    assert_eq!(log[0].subject, "cambios de la UI");
+    assert_eq!(log[0].parents.len(), 1);
+    assert_eq!(info.head.as_deref(), Some("master"));
+
+    // Amend: cambia el mensaje del de arriba sin crear otro.
+    super::repo::commit(&dir, "cambios de la UI (amend)", true).expect("amend");
+    let log2 = super::repo::log(&dir, 0, 10).expect("log 3");
+    assert_eq!(log2.len(), log.len(), "amend no debe añadir un commit");
+    assert_eq!(log2[0].subject, "cambios de la UI (amend)");
+}
+
 /// Limpieza best-effort del directorio temporal al salir del test.
 fn scopeguard(dir: &std::path::Path) -> impl Drop + '_ {
     struct G<'a>(&'a std::path::Path);
