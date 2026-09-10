@@ -40,6 +40,31 @@ fn status_renombrado_consume_token_extra() {
 }
 
 #[test]
+fn status_renombrado_sin_token_original_es_error() {
+    let tokens = vec![
+        "# branch.head master".to_string(),
+        "2 R. N... 100644 100644 100644 aaa bbb R100 nuevo.txt".to_string(),
+        // falta el token con la ruta original
+    ];
+    assert!(parse(tokens).is_err(), "un registro `2` sin ruta original debe fallar");
+}
+
+#[test]
+fn status_unmerged_con_ruta_con_espacios() {
+    let tokens = vec![
+        "# branch.head master".to_string(),
+        "u UU N... 100644 100644 100644 100644 aaa bbb ccc mi carpeta/archivo con espacios.txt"
+            .to_string(),
+    ];
+    let s = parse(tokens).unwrap();
+    assert_eq!(s.entries.len(), 1);
+    assert_eq!(s.entries[0].kind, "unmerged");
+    assert_eq!(s.entries[0].path, "mi carpeta/archivo con espacios.txt");
+    assert_eq!(s.entries[0].staged, "U");
+    assert_eq!(s.entries[0].unstaged, "U");
+}
+
+#[test]
 fn status_branch_ab() {
     let tokens = vec![
         "# branch.head main".to_string(),

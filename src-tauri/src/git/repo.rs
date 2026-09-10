@@ -152,9 +152,13 @@ fn parse_status_tokens(tokens: Vec<String>) -> GitResult<Status> {
             i += 1;
         } else if let Some(rest) = line.strip_prefix("2 ") {
             // Los registros de renombrado/copia llevan la ruta original en el
-            // SIGUIENTE token separado por NUL: hay que consumirlo aquí.
-            let orig = tokens.get(i + 1).copied().map(String::from);
-            status.entries.push(parse_ordinary(rest, orig)?);
+            // SIGUIENTE token separado por NUL: hay que consumirlo aquí. Si falta
+            // (salida truncada), es un error: sin él parse_ordinary tomaría el
+            // score como ruta en silencio.
+            let orig = tokens.get(i + 1).copied().map(String::from).ok_or_else(|| {
+                GitError::Parse("registro de renombrado sin ruta original".into())
+            })?;
+            status.entries.push(parse_ordinary(rest, Some(orig))?);
             i += 2;
         } else if let Some(rest) = line.strip_prefix("u ") {
             status.entries.push(parse_unmerged(rest)?);
@@ -241,14 +245,18 @@ fn parse_ordinary(rest: &str, orig_path: Option<String>) -> GitResult<StatusEntr
 }
 
 fn parse_unmerged(rest: &str) -> GitResult<StatusEntry> {
-    let mut parts = rest.splitn(11, ' ');
+    // Formato `u`: "<XY> <sub> <m1> <m2> <m3> <mW> <h1> <h2> <h3> <path>".
+    // 9 campos antes de la ruta (XY incluido); splitn(10) deja la ruta entera.
+    let mut parts = rest.splitn(10, ' ');
     let xy = parts
         .next()
         .ok_or_else(|| GitError::Parse("registro unmerged sin campo XY".into()))?;
-    let path = rest
-        .rsplit(' ')
+    for _ in 0..8 {
+        parts.next();
+    }
+    let path = parts
         .next()
-        .unwrap_or(rest)
+        .ok_or_else(|| GitError::Parse("registro unmerged sin ruta".into()))?
         .to_string();
     let (x, y) = split_xy(xy)?;
     Ok(StatusEntry {
