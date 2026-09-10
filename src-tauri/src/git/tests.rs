@@ -116,6 +116,106 @@ fn repo_sin_commits_da_log_vacio() {
     assert!(st.entries.is_empty());
 }
 
+/// `file_diff` debe devolver el diff del archivo pasando la ruta exacta tras
+/// `--`, incluso si empieza por `-` o lleva espacios (el caso que rompería si
+/// git leyera el nombre como opción).
+#[test]
+fn file_diff_rutas_raras_round_trip() {
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    let dir: PathBuf = std::env::temp_dir().join(format!(
+        "gitpad-diff-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let _guard = scopeguard(&dir);
+
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .args(args)
+            .current_dir(&dir)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    };
+    if !git(&["init", "-q", "-b", "master"]) {
+        eprintln!("git no disponible, se salta el test");
+        return;
+    }
+    git(&["config", "user.email", "t@t"]);
+    git(&["config", "user.name", "t"]);
+
+    for name in ["-raro.txt", "con espacio.txt"] {
+        std::fs::write(dir.join(name), "uno\ndos\n").unwrap();
+    }
+    assert!(git(&["add", "-A"]));
+    assert!(git(&["commit", "-q", "-m", "init"]));
+
+    for name in ["-raro.txt", "con espacio.txt"] {
+        std::fs::write(dir.join(name), "uno\nDOS\n").unwrap();
+        let d = super::repo::file_diff(&dir, name, false).expect("file_diff");
+        assert!(d.contains("-dos"), "diff de {name} sin la línea borrada:\n{d}");
+        assert!(d.contains("+DOS"), "diff de {name} sin la línea añadida:\n{d}");
+    }
+}
+
+/// `commit_diff` devuelve el diff del commit contra su padre, sin la cabecera
+/// del mensaje. Un hash no hexadecimal es error (no se pasa a git).
+#[test]
+fn commit_diff_contra_el_padre() {
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    let dir: PathBuf = std::env::temp_dir().join(format!(
+        "gitpad-cdiff-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let _guard = scopeguard(&dir);
+
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .args(args)
+            .current_dir(&dir)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    };
+    if !git(&["init", "-q", "-b", "master"]) {
+        eprintln!("git no disponible, se salta el test");
+        return;
+    }
+    git(&["config", "user.email", "t@t"]);
+    git(&["config", "user.name", "t"]);
+    std::fs::write(dir.join("f.txt"), "uno\n").unwrap();
+    git(&["add", "-A"]);
+    git(&["commit", "-q", "-m", "primero"]);
+    std::fs::write(dir.join("f.txt"), "uno\ndos\n").unwrap();
+    git(&["commit", "-qam", "segundo"]);
+
+    let head = std::process::Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(&dir)
+        .output()
+        .unwrap();
+    let hash = String::from_utf8_lossy(&head.stdout).trim().to_string();
+
+    let d = super::repo::commit_diff(&dir, &hash).expect("commit_diff");
+    assert!(d.contains("+dos"), "falta la línea añadida:\n{d}");
+    assert!(!d.contains("segundo"), "no debe incluir el mensaje del commit");
+
+    assert!(super::repo::commit_diff(&dir, "no-hex").is_err());
+}
+
 /// Limpieza best-effort del directorio temporal al salir del test.
 fn scopeguard(dir: &std::path::Path) -> impl Drop + '_ {
     struct G<'a>(&'a std::path::Path);

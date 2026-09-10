@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getLog, getStatus, openRepo, pickRepoFolder } from "./api";
+import {
+  getCommitDiff,
+  getFileDiff,
+  getLog,
+  getStatus,
+  openRepo,
+  pickRepoFolder,
+} from "./api";
+import { DiffView } from "./Diff";
 import type { Commit, GitError, RepoInfo, Status } from "./types";
 import "./App.css";
 
@@ -8,14 +16,28 @@ const TABS_KEY = "gitpad:tabs";
 const ACTIVE_KEY = "gitpad:active";
 const LEGACY_REPO_KEY = "gitpad:last-repo";
 
+/** Qué se está mirando en el panel de diff de una pestaña. */
+type Selection =
+  | { t: "commit"; hash: string }
+  | { t: "file"; path: string; staged: boolean };
+
+function sameSelection(a: Selection | null, b: Selection | null): boolean {
+  if (a === null || b === null) return a === b;
+  if (a.t === "commit" && b.t === "commit") return a.hash === b.hash;
+  if (a.t === "file" && b.t === "file")
+    return a.path === b.path && a.staged === b.staged;
+  return false;
+}
+
 /** Estado de una pestaña. La clave es `root` (toplevel resuelto del repo). */
 interface Tab {
   root: string;
   info: RepoInfo | null;
   commits: Commit[];
   status: Status | null;
-  /** Hash del commit seleccionado. Sin uso hasta la Fase 2b (diff). */
-  selected: string | null;
+  sel: Selection | null;
+  diff: string | null;
+  diffLoading: boolean;
   error: string | null;
   loading: boolean;
 }
@@ -26,7 +48,9 @@ function emptyTab(root: string): Tab {
     info: null,
     commits: [],
     status: null,
-    selected: null,
+    sel: null,
+    diff: null,
+    diffLoading: false,
     error: null,
     loading: true,
   };
@@ -103,7 +127,19 @@ function App() {
         setTabs((ts) =>
           ts.map((t) =>
             t.root === root
-              ? { ...t, info, commits: log, status: st, loading: false, error: null }
+              ? {
+                  ...t,
+                  info,
+                  commits: log,
+                  status: st,
+                  loading: false,
+                  error: null,
+                  // Tras recargar, el diff podría estar obsoleto; se limpia la
+                  // selección y se vuelve a elegir.
+                  sel: null,
+                  diff: null,
+                  diffLoading: false,
+                }
               : t,
           ),
         );
@@ -128,6 +164,37 @@ function App() {
     },
     [],
   );
+
+  const loadDiff = useCallback(async (root: string, sel: Selection) => {
+    setTabs((ts) =>
+      ts.map((t) =>
+        t.root === root ? { ...t, sel, diff: null, diffLoading: true } : t,
+      ),
+    );
+    try {
+      const raw =
+        sel.t === "commit"
+          ? await getCommitDiff(root, sel.hash)
+          : await getFileDiff(root, sel.path, sel.staged);
+      setTabs((ts) =>
+        ts.map((t) =>
+          // Clics rápidos: solo aplica si la selección sigue vigente.
+          t.root === root && sameSelection(t.sel, sel)
+            ? { ...t, diff: raw, diffLoading: false }
+            : t,
+        ),
+      );
+    } catch (e) {
+      const msg = isGitError(e) ? e.message : String(e);
+      setTabs((ts) =>
+        ts.map((t) =>
+          t.root === root && sameSelection(t.sel, sel)
+            ? { ...t, diff: null, diffLoading: false, error: msg }
+            : t,
+        ),
+      );
+    }
+  }, []);
 
   // Restaura las pestañas de la sesión anterior una sola vez.
   useEffect(() => {
@@ -264,27 +331,41 @@ function App() {
         <div className="body">
           <section className="commits">
             <ol>
-              {active.commits.map((c) => (
-                <li key={c.hash} className="commit">
-                  <div className="commit-line">
-                    {c.refs.map((r) => (
-                      <span key={r} className="ref">
-                        {r}
-                      </span>
-                    ))}
-                    <span className="subject">{c.subject}</span>
-                  </div>
-                  <div className="commit-meta">
-                    <code>{c.short_hash}</code>
-                    <span>{c.author_name}</span>
-                    <span>{new Date(c.date).toLocaleString()}</span>
-                  </div>
-                </li>
-              ))}
+              {active.commits.map((c) => {
+                const on =
+                  active.sel?.t === "commit" && active.sel.hash === c.hash;
+                return (
+                  <li
+                    key={c.hash}
+                    className={`commit${on ? " sel" : ""}`}
+                    onClick={() =>
+                      void loadDiff(active.root, { t: "commit", hash: c.hash })
+                    }
+                  >
+                    <div className="commit-line">
+                      {c.refs.map((r) => (
+                        <span key={r} className="ref">
+                          {r}
+                        </span>
+                      ))}
+                      <span className="subject">{c.subject}</span>
+                    </div>
+                    <div className="commit-meta">
+                      <code>{c.short_hash}</code>
+                      <span>{c.author_name}</span>
+                      <span>{new Date(c.date).toLocaleString()}</span>
+                    </div>
+                  </li>
+                );
+              })}
             </ol>
             {active.commits.length === LOG_PAGE && (
               <p className="more">Mostrando los primeros {LOG_PAGE} commits.</p>
             )}
+          </section>
+
+          <section className="diffpane">
+            <DiffView raw={active.diff} loading={active.diffLoading} />
           </section>
 
           <aside className="status">
@@ -293,17 +374,35 @@ function App() {
               <p className="clean">Árbol de trabajo limpio</p>
             )}
             <ul>
-              {active.status?.entries.map((e) => (
-                <li key={e.path} className={`entry ${e.kind}`}>
-                  <span className="xy">
-                    {e.staged}
-                    {e.unstaged}
-                  </span>
-                  <span className="path">
-                    {e.orig_path ? `${e.orig_path} → ${e.path}` : e.path}
-                  </span>
-                </li>
-              ))}
+              {active.status?.entries.map((e) => {
+                // Un archivo con cambios solo en el índice se mira en `--cached`.
+                const staged = e.unstaged === "." && e.staged !== ".";
+                const on =
+                  active.sel?.t === "file" &&
+                  active.sel.path === e.path &&
+                  active.sel.staged === staged;
+                return (
+                  <li
+                    key={e.path}
+                    className={`entry ${e.kind}${on ? " sel" : ""}`}
+                    onClick={() =>
+                      void loadDiff(active.root, {
+                        t: "file",
+                        path: e.path,
+                        staged,
+                      })
+                    }
+                  >
+                    <span className="xy">
+                      {e.staged}
+                      {e.unstaged}
+                    </span>
+                    <span className="path">
+                      {e.orig_path ? `${e.orig_path} → ${e.path}` : e.path}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           </aside>
         </div>

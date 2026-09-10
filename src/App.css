@@ -139,7 +139,7 @@ body {
 .body {
   flex: 1;
   display: grid;
-  grid-template-columns: 1fr 280px;
+  grid-template-columns: minmax(220px, 1fr) minmax(0, 2fr) 240px;
   min-height: 0;
 }
 
@@ -157,10 +157,15 @@ body {
 .commit {
   padding: 6px 12px;
   border-bottom: 1px solid #2a2a2a;
+  cursor: pointer;
 }
 
 .commit:hover {
   background: var(--bg-alt);
+}
+
+.commit.sel {
+  background: #094771;
 }
 
 .commit-line {
@@ -201,6 +206,48 @@ body {
   color: var(--fg-dim);
 }
 
+.diffpane {
+  overflow: auto;
+  border-right: 1px solid var(--border);
+  min-width: 0;
+}
+
+.diff {
+  margin: 0;
+  padding: 8px 0;
+  font: 12px/1.45 ui-monospace, "Cascadia Code", Consolas, monospace;
+  tab-size: 4;
+}
+
+.dl {
+  padding: 0 12px;
+  white-space: pre;
+}
+
+.dl.add {
+  background: #1e3a24;
+  color: #b5e8b5;
+}
+
+.dl.del {
+  background: #3a1e1e;
+  color: #e8b5b5;
+}
+
+.dl.hunk {
+  color: var(--accent);
+  background: var(--bg-alt);
+}
+
+.dl.meta {
+  color: var(--fg-dim);
+}
+
+.diff-empty {
+  padding: 16px;
+  color: var(--fg-dim);
+}
+
 .status {
   overflow-y: auto;
   padding: 10px 12px;
@@ -223,7 +270,17 @@ body {
 .entry {
   display: flex;
   gap: 8px;
-  padding: 3px 0;
+  padding: 3px 4px;
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.entry:hover {
+  background: var(--bg-alt);
+}
+
+.entry.sel {
+  background: #094771;
 }
 
 .entry .xy {

@@ -23,3 +23,15 @@ export function getLog(
 export function getStatus(path: string): Promise<Status> {
   return invoke("get_status", { path });
 }
+
+export function getCommitDiff(path: string, hash: string): Promise<string> {
+  return invoke("get_commit_diff", { path, hash });
+}
+
+export function getFileDiff(
+  path: string,
+  file: string,
+  staged: boolean,
+): Promise<string> {
+  return invoke("get_file_diff", { path, file, staged });
+}

@@ -23,11 +23,27 @@ fn get_status(path: String) -> GitResult<Status> {
     git::repo::status(Path::new(&path))
 }
 
+#[tauri::command(async)]
+fn get_commit_diff(path: String, hash: String) -> GitResult<String> {
+    git::repo::commit_diff(Path::new(&path), &hash)
+}
+
+#[tauri::command(async)]
+fn get_file_diff(path: String, file: String, staged: bool) -> GitResult<String> {
+    git::repo::file_diff(Path::new(&path), &file, staged)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![open_repo, get_log, get_status])
+        .invoke_handler(tauri::generate_handler![
+            open_repo,
+            get_log,
+            get_status,
+            get_commit_diff,
+            get_file_diff
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

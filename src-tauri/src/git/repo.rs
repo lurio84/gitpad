@@ -303,6 +303,34 @@ fn split_xy(xy: &str) -> GitResult<(char, char)> {
     }
 }
 
+/// Diff completo de un commit (contra su primer padre; contra el árbol vacío si
+/// es raíz). Devuelve el texto unificado tal cual, sin la cabecera del commit.
+/// Los commits de merge dan salida vacía (git no muestra combined diff por
+/// defecto) — aceptable para v0.
+pub fn commit_diff(repo: &Path, hash: &str) -> GitResult<String> {
+    if hash.is_empty() || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(GitError::Parse(format!("hash de commit inválido: {hash}")));
+    }
+    run_git(
+        repo,
+        &["show", "--format=", "--no-color", "--no-ext-diff", "-U3", hash],
+    )
+}
+
+/// Diff de un archivo en el árbol de trabajo. `staged` elige entre el diff del
+/// índice contra HEAD (`--cached`) y el del árbol de trabajo contra el índice.
+/// La ruta va tras `--` para que un nombre que empiece por `-` no se lea como
+/// opción, y se pasa exactamente como la dio `status`.
+pub fn file_diff(repo: &Path, file: &str, staged: bool) -> GitResult<String> {
+    let mut args = vec!["diff", "--no-color", "--no-ext-diff", "-U3"];
+    if staged {
+        args.push("--cached");
+    }
+    args.push("--");
+    args.push(file);
+    run_git(repo, &args)
+}
+
 #[cfg(test)]
 pub(super) fn parse_status_tokens_for_test(tokens: Vec<String>) -> GitResult<Status> {
     parse_status_tokens(tokens)
