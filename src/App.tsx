@@ -375,27 +375,50 @@ function App() {
             )}
             <ul>
               {active.status?.entries.map((e) => {
-                // Un archivo con cambios solo en el índice se mira en `--cached`.
-                const staged = e.unstaged === "." && e.staged !== ".";
-                const on =
+                const hasStaged = e.staged !== ".";
+                // "?" (sin seguir) no tiene diff contra el índice.
+                const hasUnstaged = e.unstaged !== "." && e.unstaged !== "?";
+                // Clic en la fila: el lado sin preparar si lo hay, si no el del índice.
+                const rowStaged = !hasUnstaged && hasStaged;
+                const selOn = (s: boolean) =>
                   active.sel?.t === "file" &&
                   active.sel.path === e.path &&
-                  active.sel.staged === staged;
+                  active.sel.staged === s;
+                const pick = (s: boolean) =>
+                  void loadDiff(active.root, { t: "file", path: e.path, staged: s });
                 return (
                   <li
                     key={e.path}
-                    className={`entry ${e.kind}${on ? " sel" : ""}`}
-                    onClick={() =>
-                      void loadDiff(active.root, {
-                        t: "file",
-                        path: e.path,
-                        staged,
-                      })
-                    }
+                    className={`entry ${e.kind}${
+                      selOn(true) || selOn(false) ? " sel" : ""
+                    }`}
+                    onClick={() => pick(rowStaged)}
                   >
                     <span className="xy">
-                      {e.staged}
-                      {e.unstaged}
+                      <span
+                        className={`xc${hasStaged ? " hit" : ""}${
+                          selOn(true) ? " on" : ""
+                        }`}
+                        onClick={(ev) => {
+                          if (!hasStaged) return;
+                          ev.stopPropagation();
+                          pick(true);
+                        }}
+                      >
+                        {e.staged}
+                      </span>
+                      <span
+                        className={`xc${hasUnstaged ? " hit" : ""}${
+                          selOn(false) ? " on" : ""
+                        }`}
+                        onClick={(ev) => {
+                          if (!hasUnstaged) return;
+                          ev.stopPropagation();
+                          pick(false);
+                        }}
+                      >
+                        {e.unstaged}
+                      </span>
                     </span>
                     <span className="path">
                       {e.orig_path ? `${e.orig_path} → ${e.path}` : e.path}

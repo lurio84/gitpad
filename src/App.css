@@ -289,6 +289,21 @@ body {
   white-space: pre;
 }
 
+.entry .xc {
+  color: var(--fg-dim);
+}
+
+.entry .xc.hit {
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.entry .xc.on {
+  background: var(--accent);
+  color: #05263f;
+  border-radius: 2px;
+}
+
 .entry.untracked .xy {
   color: var(--fg-dim);
 }

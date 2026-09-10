@@ -233,6 +233,7 @@ fn scopeguard(dir: &std::path::Path) -> impl Drop + '_ {
 #[ignore = "requiere GITPAD_SMOKE_REPO apuntando a un repo Git real"]
 fn smoke_repo_real() {
     use std::path::Path;
+    use std::process::Command;
     let repo = std::env::var("GITPAD_SMOKE_REPO").expect("define GITPAD_SMOKE_REPO");
     let info = super::repo::open(Path::new(&repo)).expect("open");
     let root = Path::new(&info.root);
@@ -254,6 +255,54 @@ fn smoke_repo_real() {
     eprintln!("cambios   : {} entradas", st.entries.len());
     for e in &st.entries {
         eprintln!("  [{}{}] {} {}", e.staged, e.unstaged, e.kind, e.path);
+    }
+
+    // El diff de HEAD debe coincidir carácter a carácter con `git show`.
+    let ours = super::repo::commit_diff(root, &log[0].hash).expect("commit_diff");
+    let theirs = Command::new("git")
+        .args([
+            "-C",
+            &info.root,
+            "show",
+            "--format=",
+            "--no-color",
+            "--no-ext-diff",
+            "-U3",
+            &log[0].hash,
+        ])
+        .output()
+        .expect("git show");
+    let theirs = String::from_utf8_lossy(&theirs.stdout);
+    assert_eq!(ours, theirs, "commit_diff difiere de `git show`");
+    eprintln!("commit_diff HEAD: {} bytes, == git show", ours.len());
+
+    // Y el de un archivo con cambios, si lo hay.
+    if let Some(e) = st
+        .entries
+        .iter()
+        .find(|e| e.unstaged != "." && e.unstaged != "?")
+    {
+        let ours = super::repo::file_diff(root, &e.path, false).expect("file_diff");
+        let theirs = Command::new("git")
+            .args([
+                "-C",
+                &info.root,
+                "diff",
+                "--no-color",
+                "--no-ext-diff",
+                "-U3",
+                "--",
+                &e.path,
+            ])
+            .output()
+            .expect("git diff");
+        assert_eq!(
+            ours,
+            String::from_utf8_lossy(&theirs.stdout),
+            "file_diff difiere de `git diff` para {}",
+            e.path
+        );
+        eprintln!("file_diff {}: {} bytes, == git diff", e.path, ours.len());
     }
 }
 
