@@ -42,10 +42,13 @@ function parse(raw: string): DiffLine[] {
 interface Props {
   raw: string | null;
   loading: boolean;
+  /** Mensaje a mostrar en vez de un diff (p. ej. archivo sin seguir). */
+  note?: string;
 }
 
-export function DiffView({ raw, loading }: Props) {
+export function DiffView({ raw, loading, note }: Props) {
   if (loading) return <div className="diff-empty">Cargando diff…</div>;
+  if (note) return <div className="diff-empty">{note}</div>;
   if (raw === null)
     return <div className="diff-empty">Selecciona un commit o un archivo.</div>;
   if (raw.trim() === "")

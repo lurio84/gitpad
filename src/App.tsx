@@ -22,7 +22,7 @@ const LEGACY_REPO_KEY = "gitpad:last-repo";
 /** Qué se está mirando en el panel de diff de una pestaña. */
 type Selection =
   | { t: "commit"; hash: string }
-  | { t: "file"; path: string; staged: boolean };
+  | { t: "file"; path: string; staged: boolean; untracked?: boolean };
 
 function sameSelection(a: Selection | null, b: Selection | null): boolean {
   if (a === null || b === null) return a === b;
@@ -180,6 +180,17 @@ function App() {
         t.root === root ? { ...t, sel, diff: null, diffLoading: true } : t,
       ),
     );
+    // Un archivo sin seguir no tiene con qué compararse: no se llama a git.
+    if (sel.t === "file" && sel.untracked) {
+      setTabs((ts) =>
+        ts.map((t) =>
+          t.root === root && sameSelection(t.sel, sel)
+            ? { ...t, diff: null, diffLoading: false }
+            : t,
+        ),
+      );
+      return;
+    }
     try {
       const raw =
         sel.t === "commit"
@@ -417,7 +428,15 @@ function App() {
           </section>
 
           <section className="diffpane">
-            <DiffView raw={active.diff} loading={active.diffLoading} />
+            <DiffView
+              raw={active.diff}
+              loading={active.diffLoading}
+              note={
+                active.sel?.t === "file" && active.sel.untracked
+                  ? "Archivo sin seguir — todavía no hay nada que comparar."
+                  : undefined
+              }
+            />
           </section>
 
           <aside className="status">
@@ -438,7 +457,12 @@ function App() {
                   active.sel.path === e.path &&
                   active.sel.staged === s;
                 const pick = (s: boolean) =>
-                  void loadDiff(active.root, { t: "file", path: e.path, staged: s });
+                  void loadDiff(active.root, {
+                    t: "file",
+                    path: e.path,
+                    staged: s,
+                    untracked,
+                  });
                 return (
                   <li
                     key={e.path}
