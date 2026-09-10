@@ -63,6 +63,63 @@ body {
   font-weight: 600;
 }
 
+.tabs {
+  display: flex;
+  background: var(--bg-alt);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px 5px 12px;
+  border-right: 1px solid var(--border);
+  color: var(--fg-dim);
+  cursor: pointer;
+  white-space: nowrap;
+  max-width: 220px;
+}
+
+.tab:hover {
+  background: #2d2d2d;
+}
+
+.tab.active {
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.tab-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tab-spin {
+  color: var(--fg-dim);
+}
+
+.tab-warn {
+  color: #ffb0b0;
+  font-weight: 700;
+}
+
+.tab-close {
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+  cursor: pointer;
+  opacity: 0.5;
+}
+
+.tab-close:hover {
+  opacity: 1;
+}
+
 .branch {
   color: var(--accent);
 }
