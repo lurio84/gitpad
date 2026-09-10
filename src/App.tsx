@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  commit as commitRepo,
   getCommitDiff,
   getFileDiff,
   getLog,
   getStatus,
   openRepo,
   pickRepoFolder,
+  stagePaths,
+  unstagePaths,
 } from "./api";
 import { DiffView } from "./Diff";
 import type { Commit, GitError, RepoInfo, Status } from "./types";
@@ -38,6 +41,9 @@ interface Tab {
   sel: Selection | null;
   diff: string | null;
   diffLoading: boolean;
+  commitMsg: string;
+  amend: boolean;
+  committing: boolean;
   error: string | null;
   loading: boolean;
 }
@@ -51,6 +57,9 @@ function emptyTab(root: string): Tab {
     sel: null,
     diff: null,
     diffLoading: false,
+    commitMsg: "",
+    amend: false,
+    committing: false,
     error: null,
     loading: true,
   };
@@ -195,6 +204,49 @@ function App() {
       );
     }
   }, []);
+
+  const patchTab = useCallback((root: string, patch: Partial<Tab>) => {
+    setTabs((ts) => ts.map((t) => (t.root === root ? { ...t, ...patch } : t)));
+  }, []);
+
+  const failTab = useCallback(
+    (root: string, e: unknown) => {
+      patchTab(root, {
+        error: isGitError(e) ? e.message : String(e),
+        committing: false,
+      });
+    },
+    [patchTab],
+  );
+
+  const toggleStage = useCallback(
+    async (root: string, paths: string[], stage: boolean) => {
+      try {
+        if (stage) await stagePaths(root, paths);
+        else await unstagePaths(root, paths);
+        await reload(root);
+      } catch (e) {
+        failTab(root, e);
+      }
+    },
+    [reload, failTab],
+  );
+
+  const doCommit = useCallback(
+    async (root: string, message: string, amend: boolean) => {
+      if (!message.trim()) return;
+      if (amend && !window.confirm("¿Reescribir el último commit?")) return;
+      patchTab(root, { committing: true, error: null });
+      try {
+        await commitRepo(root, message, amend);
+        patchTab(root, { commitMsg: "", committing: false });
+        await reload(root);
+      } catch (e) {
+        failTab(root, e);
+      }
+    },
+    [reload, patchTab, failTab],
+  );
 
   // Restaura las pestañas de la sesión anterior una sola vez.
   useEffect(() => {
@@ -376,9 +428,10 @@ function App() {
             <ul>
               {active.status?.entries.map((e) => {
                 const hasStaged = e.staged !== ".";
-                // "?" (sin seguir) no tiene diff contra el índice.
-                const hasUnstaged = e.unstaged !== "." && e.unstaged !== "?";
-                // Clic en la fila: el lado sin preparar si lo hay, si no el del índice.
+                // "?" (sin seguir) no tiene diff contra el índice, pero sí se
+                // puede preparar.
+                const untracked = e.unstaged === "?";
+                const hasUnstaged = e.unstaged !== "." && !untracked;
                 const rowStaged = !hasUnstaged && hasStaged;
                 const selOn = (s: boolean) =>
                   active.sel?.t === "file" &&
@@ -423,10 +476,69 @@ function App() {
                     <span className="path">
                       {e.orig_path ? `${e.orig_path} → ${e.path}` : e.path}
                     </span>
+                    <span className="stagebtns">
+                      {(hasUnstaged || untracked) && (
+                        <button
+                          title="Preparar"
+                          onClick={(ev) => {
+                            ev.stopPropagation();
+                            void toggleStage(active.root, [e.path], true);
+                          }}
+                        >
+                          ＋
+                        </button>
+                      )}
+                      {hasStaged && (
+                        <button
+                          title="Sacar del índice"
+                          onClick={(ev) => {
+                            ev.stopPropagation();
+                            void toggleStage(active.root, [e.path], false);
+                          }}
+                        >
+                          －
+                        </button>
+                      )}
+                    </span>
                   </li>
                 );
               })}
             </ul>
+
+            {active.status && active.status.entries.some((e) => e.staged !== ".") && (
+              <form
+                className="commitbox"
+                onSubmit={(ev) => {
+                  ev.preventDefault();
+                  void doCommit(active.root, active.commitMsg, active.amend);
+                }}
+              >
+                <textarea
+                  placeholder="Mensaje del commit"
+                  value={active.commitMsg}
+                  rows={3}
+                  onChange={(ev) =>
+                    patchTab(active.root, { commitMsg: ev.target.value })
+                  }
+                />
+                <label className="amend">
+                  <input
+                    type="checkbox"
+                    checked={active.amend}
+                    onChange={(ev) =>
+                      patchTab(active.root, { amend: ev.target.checked })
+                    }
+                  />
+                  Reescribir el último (amend)
+                </label>
+                <button
+                  type="submit"
+                  disabled={active.committing || !active.commitMsg.trim()}
+                >
+                  {active.committing ? "…" : active.amend ? "Amend" : "Commit"}
+                </button>
+              </form>
+            )}
           </aside>
         </div>
       )}

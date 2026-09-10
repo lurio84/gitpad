@@ -3,7 +3,7 @@ use std::path::Path;
 use serde::Serialize;
 
 use super::error::{GitError, GitResult};
-use super::runner::run_git;
+use super::runner::{run_git, run_git_stdin};
 
 // Separadores usados en el formato de `git log`. Unit Separator entre campos.
 const FS: char = '\u{1f}';
@@ -329,6 +329,42 @@ pub fn file_diff(repo: &Path, file: &str, staged: bool) -> GitResult<String> {
     args.push("--");
     args.push(file);
     run_git(repo, &args)
+}
+
+/// Prepara rutas en el índice (`git add`). Las rutas van tras `--` y tal cual
+/// las dio `status`.
+pub fn stage(repo: &Path, paths: &[String]) -> GitResult<()> {
+    if paths.is_empty() {
+        return Ok(());
+    }
+    let mut args = vec!["add", "--"];
+    args.extend(paths.iter().map(String::as_str));
+    run_git(repo, &args).map(|_| ())
+}
+
+/// Saca rutas del índice. `git reset -- <ruta>` en vez de `restore --staged`
+/// porque el primero también funciona en un repo sin HEAD todavía.
+pub fn unstage(repo: &Path, paths: &[String]) -> GitResult<()> {
+    if paths.is_empty() {
+        return Ok(());
+    }
+    let mut args = vec!["reset", "--quiet", "--"];
+    args.extend(paths.iter().map(String::as_str));
+    run_git(repo, &args).map(|_| ())
+}
+
+/// Crea un commit con lo que haya en el índice. El mensaje va por stdin
+/// (`-F -`). `amend` reescribe el último commit.
+pub fn commit(repo: &Path, message: &str, amend: bool) -> GitResult<String> {
+    let msg = message.trim();
+    if msg.is_empty() {
+        return Err(GitError::Parse("el mensaje de commit está vacío".into()));
+    }
+    let mut args = vec!["commit", "-F", "-"];
+    if amend {
+        args.push("--amend");
+    }
+    run_git_stdin(repo, &args, msg)
 }
 
 #[cfg(test)]

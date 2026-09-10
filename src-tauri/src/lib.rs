@@ -33,6 +33,21 @@ fn get_file_diff(path: String, file: String, staged: bool) -> GitResult<String> 
     git::repo::file_diff(Path::new(&path), &file, staged)
 }
 
+#[tauri::command(async)]
+fn stage_paths(path: String, paths: Vec<String>) -> GitResult<()> {
+    git::repo::stage(Path::new(&path), &paths)
+}
+
+#[tauri::command(async)]
+fn unstage_paths(path: String, paths: Vec<String>) -> GitResult<()> {
+    git::repo::unstage(Path::new(&path), &paths)
+}
+
+#[tauri::command(async)]
+fn commit(path: String, message: String, amend: bool) -> GitResult<String> {
+    git::repo::commit(Path::new(&path), &message, amend)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -42,7 +57,10 @@ pub fn run() {
             get_log,
             get_status,
             get_commit_diff,
-            get_file_diff
+            get_file_diff,
+            stage_paths,
+            unstage_paths,
+            commit
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

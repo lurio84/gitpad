@@ -216,6 +216,67 @@ fn commit_diff_contra_el_padre() {
     assert!(super::repo::commit_diff(&dir, "no-hex").is_err());
 }
 
+/// stage → commit → unstage a través de la capa, con rutas raras. Comprueba
+/// contra `git status` real que el índice quedó como se espera.
+#[test]
+fn stage_commit_unstage_round_trip() {
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    let dir: PathBuf = std::env::temp_dir().join(format!(
+        "gitpad-stage-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let _guard = scopeguard(&dir);
+
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .args(args)
+            .current_dir(&dir)
+            .output()
+            .map(|o| (o.status.success(), String::from_utf8_lossy(&o.stdout).into_owned()))
+            .unwrap_or((false, String::new()))
+    };
+    if !git(&["init", "-q", "-b", "master"]).0 {
+        eprintln!("git no disponible, se salta el test");
+        return;
+    }
+    git(&["config", "user.email", "t@t"]);
+    git(&["config", "user.name", "t"]);
+
+    let names = ["-raro.txt", "con espacio.txt", "normal.txt"];
+    for n in names {
+        std::fs::write(dir.join(n), "x\n").unwrap();
+    }
+
+    // Sin nada preparado, commit debe fallar con mensaje, no con panic.
+    assert!(super::repo::commit(&dir, "vacío", false).is_err());
+
+    let paths: Vec<String> = names.iter().map(|s| s.to_string()).collect();
+    super::repo::stage(&dir, &paths).expect("stage");
+    let (_, staged) = git(&["diff", "--cached", "--name-only", "-z"]);
+    for n in names {
+        assert!(staged.contains(n), "{n} no quedó preparado; índice: {staged:?}");
+    }
+
+    // Mensaje que empieza por `-`: por stdin no se lee como opción de git.
+    super::repo::commit(&dir, "-arreglo raro", false).expect("commit");
+    let (_, subject) = git(&["log", "-1", "--pretty=%s"]);
+    assert_eq!(subject.trim(), "-arreglo raro");
+
+    // Nuevo cambio, preparar y sacar del índice.
+    std::fs::write(dir.join("normal.txt"), "y\n").unwrap();
+    super::repo::stage(&dir, &["normal.txt".to_string()]).expect("stage 2");
+    super::repo::unstage(&dir, &["normal.txt".to_string()]).expect("unstage");
+    let (_, cached) = git(&["diff", "--cached", "--name-only"]);
+    assert!(cached.trim().is_empty(), "el índice debería estar vacío: {cached:?}");
+}
+
 /// Limpieza best-effort del directorio temporal al salir del test.
 fn scopeguard(dir: &std::path::Path) -> impl Drop + '_ {
     struct G<'a>(&'a std::path::Path);

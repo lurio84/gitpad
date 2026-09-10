@@ -35,3 +35,19 @@ export function getFileDiff(
 ): Promise<string> {
   return invoke("get_file_diff", { path, file, staged });
 }
+
+export function stagePaths(path: string, paths: string[]): Promise<void> {
+  return invoke("stage_paths", { path, paths });
+}
+
+export function unstagePaths(path: string, paths: string[]): Promise<void> {
+  return invoke("unstage_paths", { path, paths });
+}
+
+export function commit(
+  path: string,
+  message: string,
+  amend: boolean,
+): Promise<string> {
+  return invoke("commit", { path, message, amend });
+}

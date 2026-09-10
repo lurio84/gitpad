@@ -139,7 +139,7 @@ body {
 .body {
   flex: 1;
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(0, 2fr) 240px;
+  grid-template-columns: minmax(220px, 1fr) minmax(0, 2fr) 280px;
   min-height: 0;
 }
 
@@ -312,6 +312,77 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
+}
+
+.stagebtns {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+}
+
+.entry:hover .stagebtns {
+  opacity: 1;
+}
+
+.stagebtns button {
+  background: #3a3a3a;
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-size: 11px;
+  line-height: 1;
+  padding: 1px 4px;
+  cursor: pointer;
+}
+
+.stagebtns button:hover {
+  background: #454545;
+}
+
+.commitbox {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.commitbox textarea {
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px;
+  font: inherit;
+  resize: vertical;
+}
+
+.commitbox .amend {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--fg-dim);
+  font-size: 12px;
+}
+
+.commitbox button[type="submit"] {
+  background: #2d5a2d;
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+
+.commitbox button[type="submit"]:hover:not(:disabled) {
+  background: #367036;
+}
+
+.commitbox button[type="submit"]:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .clean,
