@@ -110,8 +110,14 @@ pub fn log(repo: &Path, skip: u32, count: u32, filter: &LogFilter) -> GitResult<
     );
     let skip_arg = format!("--skip={skip}");
     let count_arg = format!("--max-count={count}");
+    // `--all` (no solo la rama activa) siempre, no solo con filtro: el grafo de
+    // carriles solo tiene sentido mostrando las ramas en paralelo. `--date-order`
+    // sigue garantizando que ningún padre sale antes que sus hijos (aunque
+    // mezcle ramas), que es la única propiedad que necesita el algoritmo de
+    // carriles al procesar la lista de arriba a abajo en una sola pasada.
     let mut args = vec![
         "log".to_string(),
+        "--all".to_string(),
         "--date-order".to_string(),
         "--decorate=short".to_string(),
         "-z".to_string(),
@@ -122,13 +128,11 @@ pub fn log(repo: &Path, skip: u32, count: u32, filter: &LogFilter) -> GitResult<
     match filter {
         LogFilter::None => {}
         LogFilter::Message(q) => {
-            args.push("--all".to_string());
             args.push("-i".to_string());
             args.push("-F".to_string());
             args.push(format!("--grep={q}"));
         }
         LogFilter::Content(q) => {
-            args.push("--all".to_string());
             args.push(format!("-S{q}"));
         }
     }

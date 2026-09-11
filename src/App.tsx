@@ -14,6 +14,7 @@ import {
   type LogFilterMode,
 } from "./api";
 import { DiffView } from "./Diff";
+import { Graph } from "./Graph";
 import type { Branch, Commit, GitError, RepoInfo, Status } from "./types";
 import "./App.css";
 
@@ -24,7 +25,7 @@ const LEGACY_REPO_KEY = "gitpad:last-repo";
 
 /** Qué se está mirando en el panel de diff de una pestaña. */
 type Selection =
-  | { t: "commit"; hash: string }
+  | { t: "commit"; hash: string; isMerge?: boolean }
   | { t: "file"; path: string; staged: boolean; untracked?: boolean };
 
 function sameSelection(a: Selection | null, b: Selection | null): boolean {
@@ -209,8 +210,9 @@ function App() {
         t.root === root ? { ...t, sel, diff: null, diffLoading: true } : t,
       ),
     );
-    // Un archivo sin seguir no tiene con qué compararse: no se llama a git.
-    if (sel.t === "file" && sel.untracked) {
+    // Un archivo sin seguir, o un commit de fusión (git no da combined diff
+    // por defecto), no tienen con qué compararse: no se llama a git.
+    if ((sel.t === "file" && sel.untracked) || (sel.t === "commit" && sel.isMerge)) {
       setTabs((ts) =>
         ts.map((t) =>
           t.root === root && sameSelection(t.sel, sel)
@@ -526,35 +528,43 @@ function App() {
                 </button>
               </p>
             )}
-            <ol>
-              {active.commits.map((c) => {
-                const on =
-                  active.sel?.t === "commit" && active.sel.hash === c.hash;
-                return (
-                  <li
-                    key={c.hash}
-                    className={`commit${on ? " sel" : ""}`}
-                    onClick={() =>
-                      void loadDiff(active.root, { t: "commit", hash: c.hash })
-                    }
-                  >
-                    <div className="commit-line">
-                      {c.refs.map((r, i) => (
-                        <span key={`${i}-${r}`} className="ref">
-                          {r}
-                        </span>
-                      ))}
-                      <span className="subject">{c.subject}</span>
-                    </div>
-                    <div className="commit-meta">
-                      <code>{c.short_hash}</code>
-                      <span>{c.author_name}</span>
-                      <span>{new Date(c.date).toLocaleString()}</span>
-                    </div>
-                  </li>
-                );
-              })}
-            </ol>
+            <div className="commit-list">
+              <Graph commits={active.commits} />
+              <ol>
+                {active.commits.map((c) => {
+                  const on =
+                    active.sel?.t === "commit" && active.sel.hash === c.hash;
+                  const isMerge = c.parents.length > 1;
+                  return (
+                    <li
+                      key={c.hash}
+                      className={`commit${on ? " sel" : ""}`}
+                      onClick={() =>
+                        void loadDiff(active.root, {
+                          t: "commit",
+                          hash: c.hash,
+                          isMerge,
+                        })
+                      }
+                    >
+                      <div className="commit-line">
+                        {c.refs.map((r, i) => (
+                          <span key={`${i}-${r}`} className="ref">
+                            {r}
+                          </span>
+                        ))}
+                        <span className="subject">{c.subject}</span>
+                      </div>
+                      <div className="commit-meta">
+                        <code>{c.short_hash}</code>
+                        <span>{c.author_name}</span>
+                        <span>{new Date(c.date).toLocaleString()}</span>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ol>
+            </div>
             {active.commits.length === LOG_PAGE && (
               <p className="more">Mostrando los primeros {LOG_PAGE} commits.</p>
             )}
@@ -567,7 +577,9 @@ function App() {
               note={
                 active.sel?.t === "file" && active.sel.untracked
                   ? "Archivo sin seguir — todavía no hay nada que comparar."
-                  : undefined
+                  : active.sel?.t === "commit" && active.sel.isMerge
+                    ? "Commit de fusión — sin diff propio; mira los commits que fusiona."
+                    : undefined
               }
             />
           </section>

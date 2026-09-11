@@ -251,16 +251,32 @@ body {
   border-right: 1px solid var(--border);
 }
 
-.commits ol {
+.commit-list {
+  display: flex;
+  align-items: flex-start;
+}
+
+.commit-list ol {
   list-style: none;
   margin: 0;
   padding: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+.graph {
+  margin-top: 0;
 }
 
 .commit {
+  /* Debe coincidir con ROW_H en Graph.tsx: el SVG del grafo se dibuja con
+     filas de ese alto fijo para quedar alineado con esta lista. */
+  height: 44px;
+  box-sizing: border-box;
   padding: 6px 12px;
   border-bottom: 1px solid #2a2a2a;
   cursor: pointer;
+  overflow: hidden;
 }
 
 .commit:hover {
