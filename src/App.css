@@ -270,8 +270,11 @@ body {
 
 .commit {
   /* Debe coincidir con ROW_H en Graph.tsx: el SVG del grafo se dibuja con
-     filas de ese alto fijo para quedar alineado con esta lista. */
-  height: 44px;
+     filas de ese alto fijo para quedar alineado con esta lista. 68px medido
+     contra el repo real (scrollHeight con contenido normal, no el fixture
+     con asuntos cortos) — con menos, la línea de meta se recorta en
+     silencio. */
+  height: 68px;
   box-sizing: border-box;
   padding: 6px 12px;
   border-bottom: 1px solid #2a2a2a;

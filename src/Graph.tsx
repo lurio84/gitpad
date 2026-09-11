@@ -3,7 +3,7 @@ import type { Commit } from "./types";
 /** Alto de fila en píxeles. Tiene que coincidir con el alto real de `.commit`
  * en App.css (`min-height`) para que el SVG quede alineado con la lista —
  * por eso `.commit` fija esa altura en vez de depender del contenido. */
-export const ROW_H = 44;
+export const ROW_H = 68;
 const LANE_W = 16;
 const DOT_R = 4;
 
