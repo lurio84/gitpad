@@ -3,7 +3,7 @@ use std::path::Path;
 use serde::Serialize;
 
 use super::error::{GitError, GitResult};
-use super::runner::{run_git, run_git_stdin};
+use super::runner::{run_git, run_git_bytes, run_git_stdin};
 
 // Separadores usados en el formato de `git log`. Unit Separator entre campos.
 const FS: char = '\u{1f}';
@@ -52,6 +52,38 @@ pub struct Status {
     pub entries: Vec<StatusEntry>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct Branch {
+    /// Nombre a mostrar: `"master"` para una rama local, `"origin/master"`
+    /// para una remota.
+    pub name: String,
+    /// Lo que se le pasa a `git checkout`. Para una remota es el nombre SIN
+    /// el prefijo del remoto (`"master"`, no `"origin/master"`): así git
+    /// aplica el DWIM (crea la rama local con tracking) si no hay ya una
+    /// local con ese nombre. Pasar la forma con el remoto, o el refname
+    /// completo, deja HEAD "detached" en vez de cambiar de rama — comprobado
+    /// contra git 2.55.
+    pub checkout_arg: String,
+    pub upstream: Option<String>,
+    /// Ruta del worktree que tiene esta rama abierta ahora mismo, si no es
+    /// este. `None` si la rama no está en ningún worktree o si es la de aquí.
+    pub worktree_path: Option<String>,
+    pub is_head: bool,
+    pub is_remote: bool,
+}
+
+/// Qué filtrar en `log`. `--all` en los dos casos con filtro: buscar solo en
+/// la rama activa no es lo que se espera de "buscar un commit".
+pub enum LogFilter {
+    None,
+    /// Mensaje del commit. `-F` (literal, no regex) + `-i` (sin distinguir
+    /// mayúsculas): sin ellas un `.` o un `*` en la búsqueda dan resultados
+    /// que no tienen sentido para quien no espera regex.
+    Message(String),
+    /// Contenido añadido/quitado (`git log -S`).
+    Content(String),
+}
+
 pub fn open(path: &Path) -> GitResult<RepoInfo> {
     let root = super::runner::resolve_repo_root(path)?;
     let head_raw = run_git(Path::new(&root), &["symbolic-ref", "--quiet", "--short", "HEAD"]);
@@ -65,7 +97,7 @@ pub fn open(path: &Path) -> GitResult<RepoInfo> {
     Ok(RepoInfo { root, head })
 }
 
-pub fn log(repo: &Path, skip: u32, count: u32) -> GitResult<Vec<Commit>> {
+pub fn log(repo: &Path, skip: u32, count: u32, filter: &LogFilter) -> GitResult<Vec<Commit>> {
     // Un repo recién iniciado (o una rama huérfana) no tiene commits en HEAD y
     // `git log` sale con código 128. Se detecta antes con `rev-parse --verify HEAD`
     // (código 1 si no hay commit) y se devuelve una lista vacía en vez de un error.
@@ -78,18 +110,32 @@ pub fn log(repo: &Path, skip: u32, count: u32) -> GitResult<Vec<Commit>> {
     );
     let skip_arg = format!("--skip={skip}");
     let count_arg = format!("--max-count={count}");
-    let out = run_git(
-        repo,
-        &[
-            "log",
-            "--date-order",
-            "--decorate=short",
-            "-z",
-            &fmt,
-            &skip_arg,
-            &count_arg,
-        ],
-    )?;
+    let mut args = vec![
+        "log".to_string(),
+        "--date-order".to_string(),
+        "--decorate=short".to_string(),
+        "-z".to_string(),
+        fmt,
+    ];
+    // Formas pegadas (`--grep=`, `-S<q>`): una búsqueda que empiece por `-`
+    // no se lee como opción de git.
+    match filter {
+        LogFilter::None => {}
+        LogFilter::Message(q) => {
+            args.push("--all".to_string());
+            args.push("-i".to_string());
+            args.push("-F".to_string());
+            args.push(format!("--grep={q}"));
+        }
+        LogFilter::Content(q) => {
+            args.push("--all".to_string());
+            args.push(format!("-S{q}"));
+        }
+    }
+    args.push(skip_arg);
+    args.push(count_arg);
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let out = run_git(repo, &args)?;
 
     let mut commits = Vec::new();
     for record in out.split('\0') {
@@ -122,11 +168,13 @@ pub fn log(repo: &Path, skip: u32, count: u32) -> GitResult<Vec<Commit>> {
     Ok(commits)
 }
 
-/// `%D` produce algo como "HEAD -> master, origin/master, tag: v1.0".
+/// `%D` produce algo como "HEAD -> master, origin/master, tag: v1.0", o
+/// "HEAD, tag: v1.0" con HEAD desprendido — ahí "HEAD" va suelto, sin
+/// prefijo que quitar. Se descarta: ya se muestra aparte en la topbar.
 fn parse_refs(raw: &str) -> Vec<String> {
     raw.split(", ")
         .map(str::trim)
-        .filter(|s| !s.is_empty())
+        .filter(|s| !s.is_empty() && *s != "HEAD")
         .map(|s| {
             s.strip_prefix("HEAD -> ")
                 .or_else(|| s.strip_prefix("tag: "))
@@ -137,7 +185,10 @@ fn parse_refs(raw: &str) -> Vec<String> {
 }
 
 pub fn status(repo: &Path) -> GitResult<Status> {
-    let out = run_git(
+    // UTF-8 estricto (no lossy): esta ruta alimenta `git add`, así que un byte
+    // no válido debe romper la vista de status con un error legible en vez de
+    // corromper una ruta en silencio y arriesgarse a prepararla mal.
+    let bytes = run_git_bytes(
         repo,
         &[
             "status",
@@ -147,6 +198,8 @@ pub fn status(repo: &Path) -> GitResult<Status> {
             "--untracked-files=normal",
         ],
     )?;
+    let out = String::from_utf8(bytes)
+        .map_err(|_| GitError::Parse("la salida de git status tiene bytes no UTF-8".into()))?;
     let tokens: Vec<String> = out
         .split('\0')
         .filter(|t| !t.is_empty())
@@ -367,9 +420,91 @@ pub fn commit(repo: &Path, message: &str, amend: bool) -> GitResult<String> {
     run_git_stdin(repo, &args, msg)
 }
 
+/// Ramas locales y remotas, más recientes primero. `%(worktreepath)` viene
+/// vacío salvo que la rama esté abierta en un worktree (comprobado en vivo,
+/// git 2.55): con eso se puede marcar como bloqueada *antes* del clic, en vez
+/// de traducir después el error de `checkout`.
+pub fn branches(repo: &Path) -> GitResult<Vec<Branch>> {
+    let fmt = format!("%(refname){FS}%(upstream:short){FS}%(worktreepath){FS}%(HEAD)");
+    let out = run_git(
+        repo,
+        &[
+            "for-each-ref",
+            "--sort=-committerdate",
+            &format!("--format={fmt}"),
+            "refs/heads",
+            "refs/remotes",
+        ],
+    )?;
+    parse_branch_lines(&out)
+}
+
+fn parse_branch_lines(raw: &str) -> GitResult<Vec<Branch>> {
+    let mut branches = Vec::new();
+    for line in raw.lines() {
+        let line = line.trim_end_matches('\r');
+        if line.is_empty() {
+            continue;
+        }
+        let f: Vec<&str> = line.split(FS).collect();
+        if f.len() != 4 {
+            return Err(GitError::Parse(format!(
+                "esperados 4 campos por rama, encontrados {}",
+                f.len()
+            )));
+        }
+        let full = f[0];
+        // `refname:short` no vale aquí: cuando una rama y un tag comparten
+        // nombre, git lo desambigua como "heads/<nombre>", y pasar esa forma
+        // (o el refname completo) a `checkout` deja HEAD "detached" en vez de
+        // cambiar de rama — comprobado en vivo. Se quita el prefijo a mano.
+        let (is_remote, name) = if let Some(r) = full.strip_prefix("refs/heads/") {
+            (false, r.to_string())
+        } else if let Some(r) = full.strip_prefix("refs/remotes/") {
+            (true, r.to_string())
+        } else {
+            continue; // ref inesperada (no debería salir de refs/heads o refs/remotes)
+        };
+        // `origin/HEAD`: puntero simbólico al HEAD del remoto, no una rama.
+        if is_remote && name.rsplit('/').next() == Some("HEAD") {
+            continue;
+        }
+        let checkout_arg = if is_remote {
+            // Quitar "<remoto>/" para que `git checkout <rama>` dispare el
+            // DWIM (crea la rama local con tracking) en vez de resolver el
+            // nombre con el remoto como un checkout "detached" directo.
+            name.splitn(2, '/').nth(1).unwrap_or(&name).to_string()
+        } else {
+            name.clone()
+        };
+        branches.push(Branch {
+            name,
+            checkout_arg,
+            upstream: (!f[1].is_empty()).then(|| f[1].to_string()),
+            worktree_path: (!f[2].is_empty()).then(|| f[2].to_string()),
+            is_head: f[3] == "*",
+            is_remote,
+        });
+    }
+    Ok(branches)
+}
+
+/// Cambia de rama. `name` debe ser el nombre corto sin cualificar
+/// (`checkout_arg` de `Branch`, o el nombre tal cual de una rama local):
+/// es la única forma que hace que `git checkout` cambie de rama en vez de
+/// dejar HEAD "detached".
+pub fn checkout(repo: &Path, name: &str) -> GitResult<()> {
+    run_git(repo, &["checkout", name]).map(|_| ())
+}
+
 #[cfg(test)]
 pub(super) fn parse_status_tokens_for_test(tokens: Vec<String>) -> GitResult<Status> {
     parse_status_tokens(tokens)
+}
+
+#[cfg(test)]
+pub(super) fn parse_branch_lines_for_test(raw: &str) -> GitResult<Vec<Branch>> {
+    parse_branch_lines(raw)
 }
 
 #[cfg(test)]

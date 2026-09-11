@@ -3,7 +3,7 @@ mod git;
 use std::path::Path;
 
 use git::error::GitResult;
-use git::repo::{Commit, RepoInfo, Status};
+use git::repo::{Branch, Commit, LogFilter, RepoInfo, Status};
 
 // `async` sobre una fn síncrona: Tauri la ejecuta en su threadpool en vez de
 // inline en el hilo del IPC, así un `git log` lento sobre un repo grande no
@@ -14,8 +14,31 @@ fn open_repo(path: String) -> GitResult<RepoInfo> {
 }
 
 #[tauri::command(async)]
-fn get_log(path: String, skip: u32, count: u32) -> GitResult<Vec<Commit>> {
-    git::repo::log(Path::new(&path), skip, count)
+fn get_log(
+    path: String,
+    skip: u32,
+    count: u32,
+    filter_mode: String,
+    filter_query: String,
+) -> GitResult<Vec<Commit>> {
+    let query = filter_query.trim();
+    let filter = match (filter_mode.as_str(), query) {
+        (_, "") => LogFilter::None,
+        ("message", q) => LogFilter::Message(q.to_string()),
+        ("content", q) => LogFilter::Content(q.to_string()),
+        _ => LogFilter::None,
+    };
+    git::repo::log(Path::new(&path), skip, count, &filter)
+}
+
+#[tauri::command(async)]
+fn get_branches(path: String) -> GitResult<Vec<Branch>> {
+    git::repo::branches(Path::new(&path))
+}
+
+#[tauri::command(async)]
+fn checkout_branch(path: String, name: String) -> GitResult<()> {
+    git::repo::checkout(Path::new(&path), &name)
 }
 
 #[tauri::command(async)]
@@ -60,7 +83,9 @@ pub fn run() {
             get_file_diff,
             stage_paths,
             unstage_paths,
-            commit
+            commit,
+            get_branches,
+            checkout_branch
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

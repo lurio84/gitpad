@@ -139,8 +139,111 @@ body {
 .body {
   flex: 1;
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(0, 2fr) 280px;
+  grid-template-columns: 180px minmax(220px, 1fr) minmax(0, 2fr) 280px;
   min-height: 0;
+}
+
+.branches {
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
+  padding: 10px 0;
+}
+
+.branches h2 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-dim);
+  margin: 0 12px 8px;
+}
+
+.branch-group-label {
+  padding: 4px 12px;
+  color: var(--fg-dim);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.branches ul {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0;
+}
+
+.branch-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.branch-item:hover {
+  background: var(--bg-alt);
+}
+
+.branch-item .branch-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.branch-item.current .branch-name {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.branch-item .dot {
+  font-size: 9px;
+  color: var(--accent);
+}
+
+.branch-item.locked {
+  color: var(--fg-dim);
+  cursor: not-allowed;
+}
+
+.branch-item .lock {
+  margin-left: auto;
+  color: var(--fg-dim);
+}
+
+.search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.search select,
+.search input {
+  background: #3a3a3a;
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 6px;
+}
+
+.search input {
+  width: 180px;
+}
+
+.filter-info {
+  margin: 0;
+  padding: 8px 12px;
+  color: var(--fg-dim);
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.link {
+  background: none;
+  border: none;
+  color: var(--accent);
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
 }
 
 .commits {

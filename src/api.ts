@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import type { Commit, RepoInfo, Status } from "./types";
+import type { Branch, Commit, RepoInfo, Status } from "./types";
+
+export type LogFilterMode = "none" | "message" | "content";
 
 /** Abre el selector de carpetas del SO. `null` si el usuario cancela. */
 export async function pickRepoFolder(): Promise<string | null> {
@@ -16,8 +18,16 @@ export function getLog(
   path: string,
   skip: number,
   count: number,
+  filterMode: LogFilterMode = "none",
+  filterQuery = "",
 ): Promise<Commit[]> {
-  return invoke("get_log", { path, skip, count });
+  return invoke("get_log", {
+    path,
+    skip,
+    count,
+    filterMode,
+    filterQuery,
+  });
 }
 
 export function getStatus(path: string): Promise<Status> {
@@ -50,4 +60,13 @@ export function commit(
   amend: boolean,
 ): Promise<string> {
   return invoke("commit", { path, message, amend });
+}
+
+export function getBranches(path: string): Promise<Branch[]> {
+  return invoke("get_branches", { path });
+}
+
+/** `name` debe ser `checkout_arg` de la rama, nunca `name`. */
+export function checkoutBranch(path: string, name: string): Promise<void> {
+  return invoke("checkout_branch", { path, name });
 }

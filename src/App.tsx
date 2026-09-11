@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  checkoutBranch,
   commit as commitRepo,
+  getBranches,
   getCommitDiff,
   getFileDiff,
   getLog,
@@ -9,9 +11,10 @@ import {
   pickRepoFolder,
   stagePaths,
   unstagePaths,
+  type LogFilterMode,
 } from "./api";
 import { DiffView } from "./Diff";
-import type { Commit, GitError, RepoInfo, Status } from "./types";
+import type { Branch, Commit, GitError, RepoInfo, Status } from "./types";
 import "./App.css";
 
 const LOG_PAGE = 200;
@@ -37,6 +40,7 @@ interface Tab {
   root: string;
   info: RepoInfo | null;
   commits: Commit[];
+  branches: Branch[];
   status: Status | null;
   sel: Selection | null;
   diff: string | null;
@@ -44,6 +48,8 @@ interface Tab {
   commitMsg: string;
   amend: boolean;
   committing: boolean;
+  filterMode: LogFilterMode;
+  filterQuery: string;
   error: string | null;
   loading: boolean;
 }
@@ -53,6 +59,7 @@ function emptyTab(root: string): Tab {
     root,
     info: null,
     commits: [],
+    branches: [],
     status: null,
     sel: null,
     diff: null,
@@ -60,6 +67,8 @@ function emptyTab(root: string): Tab {
     commitMsg: "",
     amend: false,
     committing: false,
+    filterMode: "message",
+    filterQuery: "",
     error: null,
     loading: true,
   };
@@ -118,9 +127,27 @@ function App() {
   // Token de generación POR repo: una carga lenta de una pestaña no puede
   // descartar el resultado fresco de otra (ni el suyo propio si se recarga).
   const gens = useRef<Map<string, number>>(new Map());
+  // Filtro de búsqueda aplicado POR repo. Vive en un ref (no en el estado de
+  // la pestaña) porque `reload` es estable y no puede leer `tabs` por
+  // closure; `reload` lee de aquí, y aplicar un filtro nuevo escribe aquí
+  // antes de recargar.
+  const filters = useRef<Map<string, { mode: LogFilterMode; query: string }>>(
+    new Map(),
+  );
 
   const reload = useCallback(
-    async (root: string, opts?: { dropOnError?: boolean }) => {
+    async (
+      root: string,
+      opts?: {
+        dropOnError?: boolean;
+        filter?: { mode: LogFilterMode; query: string };
+      },
+    ) => {
+      if (opts?.filter) filters.current.set(root, opts.filter);
+      const filter = filters.current.get(root) ?? {
+        mode: "message" as LogFilterMode,
+        query: "",
+      };
       const gen = (gens.current.get(root) ?? 0) + 1;
       gens.current.set(root, gen);
       setTabs((ts) =>
@@ -128,9 +155,10 @@ function App() {
       );
       try {
         const info = await openRepo(root);
-        const [log, st] = await Promise.all([
-          getLog(info.root, 0, LOG_PAGE),
+        const [log, st, branches] = await Promise.all([
+          getLog(info.root, 0, LOG_PAGE, filter.mode, filter.query),
           getStatus(info.root),
+          getBranches(info.root),
         ]);
         if (gens.current.get(root) !== gen) return;
         setTabs((ts) =>
@@ -140,6 +168,7 @@ function App() {
                   ...t,
                   info,
                   commits: log,
+                  branches,
                   status: st,
                   loading: false,
                   error: null,
@@ -259,6 +288,27 @@ function App() {
     [reload, patchTab, failTab],
   );
 
+  const applyFilter = useCallback(
+    (root: string, mode: LogFilterMode, query: string) => {
+      patchTab(root, { filterMode: mode, filterQuery: query });
+      void reload(root, { filter: { mode, query } });
+    },
+    [reload, patchTab],
+  );
+
+  const doCheckout = useCallback(
+    async (root: string, name: string) => {
+      patchTab(root, { error: null });
+      try {
+        await checkoutBranch(root, name);
+        await reload(root);
+      } catch (e) {
+        failTab(root, e);
+      }
+    },
+    [reload, patchTab, failTab],
+  );
+
   // Restaura las pestañas de la sesión anterior una sola vez.
   useEffect(() => {
     const roots = restoreRoots();
@@ -356,6 +406,36 @@ function App() {
             <button onClick={onRefresh} disabled={active.loading}>
               {active.loading ? "…" : "Recargar"}
             </button>
+            <form
+              className="search"
+              onSubmit={(ev) => {
+                ev.preventDefault();
+                applyFilter(active.root, active.filterMode, active.filterQuery);
+              }}
+            >
+              <select
+                value={active.filterMode}
+                onChange={(ev) =>
+                  patchTab(active.root, {
+                    filterMode: ev.target.value as LogFilterMode,
+                  })
+                }
+              >
+                <option value="message">Mensaje</option>
+                <option value="content">Contenido</option>
+              </select>
+              <input
+                type="text"
+                placeholder="Buscar commits…"
+                value={active.filterQuery}
+                onChange={(ev) =>
+                  patchTab(active.root, { filterQuery: ev.target.value })
+                }
+              />
+              <button type="submit" disabled={!active.filterQuery.trim()}>
+                Buscar
+              </button>
+            </form>
           </>
         )}
       </header>
@@ -392,7 +472,60 @@ function App() {
 
       {active && (
         <div className="body">
+          <aside className="branches">
+            <h2>Ramas</h2>
+            {(["local", "remote"] as const).map((group) => {
+              const list = active.branches.filter((b) =>
+                group === "local" ? !b.is_remote : b.is_remote,
+              );
+              if (list.length === 0) return null;
+              return (
+                <div key={group}>
+                  <div className="branch-group-label">
+                    {group === "local" ? "Locales" : "Remotas"}
+                  </div>
+                  <ul>
+                    {list.map((b) => {
+                      const locked = b.worktree_path !== null && !b.is_head;
+                      return (
+                        <li
+                          key={b.name}
+                          className={`branch-item${b.is_head ? " current" : ""}${
+                            locked ? " locked" : ""
+                          }`}
+                          title={
+                            locked
+                              ? `Abierta en otro worktree: ${b.worktree_path}`
+                              : b.name
+                          }
+                          onClick={() =>
+                            !locked && void doCheckout(active.root, b.checkout_arg)
+                          }
+                        >
+                          {b.is_head && <span className="dot">●</span>}
+                          <span className="branch-name">{b.name}</span>
+                          {locked && <span className="lock">⊘</span>}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              );
+            })}
+          </aside>
+
           <section className="commits">
+            {active.filterQuery.trim() && (
+              <p className="filter-info">
+                {active.commits.length} resultados para «{active.filterQuery}» ·{" "}
+                <button
+                  className="link"
+                  onClick={() => applyFilter(active.root, active.filterMode, "")}
+                >
+                  limpiar
+                </button>
+              </p>
+            )}
             <ol>
               {active.commits.map((c) => {
                 const on =
@@ -406,8 +539,8 @@ function App() {
                     }
                   >
                     <div className="commit-line">
-                      {c.refs.map((r) => (
-                        <span key={r} className="ref">
+                      {c.refs.map((r, i) => (
+                        <span key={`${i}-${r}`} className="ref">
                           {r}
                         </span>
                       ))}

@@ -109,7 +109,7 @@ fn repo_sin_commits_da_log_vacio() {
     let info = super::repo::open(&dir).expect("open de repo vacío");
     assert_eq!(info.head.as_deref(), Some("master"));
 
-    let log = super::repo::log(&dir, 0, 50).expect("log de repo vacío");
+    let log = super::repo::log(&dir, 0, 50, &super::repo::LogFilter::None).expect("log de repo vacío");
     assert!(log.is_empty(), "un repo sin commits debe dar log vacío");
 
     let st = super::repo::status(&dir).expect("status de repo vacío");
@@ -331,14 +331,14 @@ fn flujo_ui_status_stage_commit() {
     let st2 = super::repo::status(&dir).expect("status 2");
     assert!(st2.entries.is_empty(), "el árbol debería quedar limpio: {st2:?}");
 
-    let log = super::repo::log(&dir, 0, 10).expect("log");
+    let log = super::repo::log(&dir, 0, 10, &super::repo::LogFilter::None).expect("log");
     assert_eq!(log[0].subject, "cambios de la UI");
     assert_eq!(log[0].parents.len(), 1);
     assert_eq!(info.head.as_deref(), Some("master"));
 
     // Amend: cambia el mensaje del de arriba sin crear otro.
     super::repo::commit(&dir, "cambios de la UI (amend)", true).expect("amend");
-    let log2 = super::repo::log(&dir, 0, 10).expect("log 3");
+    let log2 = super::repo::log(&dir, 0, 10, &super::repo::LogFilter::None).expect("log 3");
     assert_eq!(log2.len(), log.len(), "amend no debe añadir un commit");
     assert_eq!(log2[0].subject, "cambios de la UI (amend)");
 }
@@ -365,7 +365,7 @@ fn smoke_repo_real() {
     let info = super::repo::open(Path::new(&repo)).expect("open");
     let root = Path::new(&info.root);
 
-    let log = super::repo::log(root, 0, 10).expect("log");
+    let log = super::repo::log(root, 0, 10, &super::repo::LogFilter::None).expect("log");
     assert!(!log.is_empty(), "el repo debería tener commits");
     assert_eq!(log[0].hash.len(), 40, "hash completo esperado");
 
@@ -438,4 +438,55 @@ fn refs_se_limpian_los_prefijos() {
     use super::repo::parse_refs_for_test as parse_refs;
     let r = parse_refs("HEAD -> master, origin/master, tag: v1.0");
     assert_eq!(r, vec!["master", "origin/master", "v1.0"]);
+}
+
+#[test]
+fn refs_head_desprendido_se_descarta() {
+    use super::repo::parse_refs_for_test as parse_refs;
+    // Con HEAD desprendido, %D da "HEAD" suelto (sin "HEAD -> "): ya se
+    // muestra aparte en la topbar, no debe salir como chip duplicado.
+    let r = parse_refs("HEAD, tag: v1.0");
+    assert_eq!(r, vec!["v1.0"]);
+}
+
+#[test]
+fn branches_parsea_locales_remotas_y_worktree() {
+    use super::repo::parse_branch_lines_for_test as parse;
+    const FS: char = '\u{1f}';
+    let raw = format!(
+        "refs/heads/master{FS}origin/master{FS}/repo{FS}*\n\
+         refs/heads/wt-target{FS}{FS}/otro/worktree{FS}\n\
+         refs/remotes/origin/master{FS}{FS}{FS}\n\
+         refs/remotes/origin/HEAD{FS}{FS}{FS}\n"
+    );
+    let branches = parse(&raw).expect("parseo de ramas");
+    assert_eq!(branches.len(), 3, "origin/HEAD (puntero simbólico) debe descartarse");
+
+    let master = branches.iter().find(|b| b.name == "master").unwrap();
+    assert!(master.is_head);
+    assert!(!master.is_remote);
+    assert_eq!(master.checkout_arg, "master");
+    assert_eq!(master.upstream.as_deref(), Some("origin/master"));
+    assert_eq!(master.worktree_path.as_deref(), Some("/repo"));
+
+    let wt = branches.iter().find(|b| b.name == "wt-target").unwrap();
+    assert!(
+        !wt.is_head && wt.worktree_path.is_some(),
+        "abierta en otro worktree y no es HEAD aquí: debe salir bloqueable"
+    );
+
+    let remote = branches
+        .iter()
+        .find(|b| b.name == "origin/master")
+        .unwrap();
+    assert!(remote.is_remote);
+    // Sin el prefijo del remoto: así `checkout` dispara el DWIM en vez de
+    // dejar HEAD "detached" (comprobado en vivo contra git 2.55).
+    assert_eq!(remote.checkout_arg, "master");
+}
+
+#[test]
+fn branches_campos_incompletos_es_error() {
+    use super::repo::parse_branch_lines_for_test as parse;
+    assert!(parse("refs/heads/master\n").is_err());
 }

@@ -48,3 +48,15 @@ export interface GitError {
     | "parse";
   message: string;
 }
+
+export interface Branch {
+  /** "master" para local, "origin/master" para remota. */
+  name: string;
+  /** Lo que se pasa a `checkoutBranch` (nunca `name` directamente). */
+  checkout_arg: string;
+  upstream: string | null;
+  /** Ruta del worktree que la tiene abierta ahora, si no es esta. */
+  worktree_path: string | null;
+  is_head: boolean;
+  is_remote: boolean;
+}
