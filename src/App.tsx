@@ -1,21 +1,42 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   checkoutBranch,
+  cherryPick,
   commit as commitRepo,
+  fetchRemote,
   getBranches,
   getCommitDiff,
+  getDefaultBase,
   getFileDiff,
   getLog,
+  getOpState,
+  getStashes,
   getStatus,
+  opAbort,
+  opContinue,
   openRepo,
   pickRepoFolder,
+  pullRemote,
+  pushRemote,
+  rebaseOnto,
   stagePaths,
+  stashApply,
+  stashDrop,
+  stashPush,
   unstagePaths,
   type LogFilterMode,
 } from "./api";
 import { DiffView } from "./Diff";
 import { Graph } from "./Graph";
-import type { Branch, Commit, GitError, RepoInfo, Status } from "./types";
+import type {
+  Branch,
+  Commit,
+  GitError,
+  OpState,
+  RepoInfo,
+  Stash,
+  Status,
+} from "./types";
 import "./App.css";
 
 const LOG_PAGE = 200;
@@ -49,6 +70,20 @@ interface Tab {
   commitMsg: string;
   amend: boolean;
   committing: boolean;
+  /** Qué operación de red está en curso, o `null` si ninguna. */
+  remoting: "fetch" | "pull" | "push" | null;
+  /** Rebase/cherry-pick/merge parado a medias por un conflicto, o `null`. */
+  opState: OpState | null;
+  /** `true` mientras se ejecuta Continuar/Abortar sobre `opState`. */
+  opBusy: boolean;
+  stashes: Stash[];
+  stashMsg: string;
+  stashIncludeUntracked: boolean;
+  stashBusy: boolean;
+  cherryBusy: boolean;
+  /** Rama base elegida para el rebase; se precarga con `default_base`. */
+  rebaseTarget: string;
+  rebasing: boolean;
   filterMode: LogFilterMode;
   filterQuery: string;
   error: string | null;
@@ -68,6 +103,16 @@ function emptyTab(root: string): Tab {
     commitMsg: "",
     amend: false,
     committing: false,
+    remoting: null,
+    opState: null,
+    opBusy: false,
+    stashes: [],
+    stashMsg: "",
+    stashIncludeUntracked: true,
+    stashBusy: false,
+    cherryBusy: false,
+    rebaseTarget: "",
+    rebasing: false,
     filterMode: "message",
     filterQuery: "",
     error: null,
@@ -156,10 +201,13 @@ function App() {
       );
       try {
         const info = await openRepo(root);
-        const [log, st, branches] = await Promise.all([
+        const [log, st, branches, opState, stashes, defaultBase] = await Promise.all([
           getLog(info.root, 0, LOG_PAGE, filter.mode, filter.query),
           getStatus(info.root),
           getBranches(info.root),
+          getOpState(info.root),
+          getStashes(info.root),
+          getDefaultBase(info.root),
         ]);
         if (gens.current.get(root) !== gen) return;
         setTabs((ts) =>
@@ -171,6 +219,11 @@ function App() {
                   commits: log,
                   branches,
                   status: st,
+                  opState,
+                  stashes,
+                  // Solo se precarga una vez; si Bernardo ya eligió otra base
+                  // no se le pisa en cada recarga.
+                  rebaseTarget: t.rebaseTarget || defaultBase || "",
                   loading: false,
                   error: null,
                   // Tras recargar, el diff podría estar obsoleto; se limpia la
@@ -256,10 +309,37 @@ function App() {
       patchTab(root, {
         error: isGitError(e) ? e.message : String(e),
         committing: false,
+        remoting: null,
+        opBusy: false,
+        stashBusy: false,
+        cherryBusy: false,
+        rebasing: false,
       });
     },
     [patchTab],
   );
+
+  // Un rebase/cherry-pick/continue que "falla" por un conflicto no es un
+  // error de conexión: el repo queda en un estado real (a medias) que hay
+  // que reflejar. `failTab` solo pone el mensaje; sin esto `opState` se
+  // queda en `null` para siempre, el banner naranja nunca aparece y nada se
+  // bloquea — descubierto clicando la UI real, no con `invoke` crudo (el
+  // catch nunca refrescaba, aunque `op_state` en Rust siempre fue correcto).
+  // No se usa `reload()` a secas porque esta limpia `error` al empezar y lo
+  // volvería a poner a `null` al terminar bien, borrando el mensaje de git.
+  const refreshVolatile = useCallback(async (root: string) => {
+    try {
+      const [opState, status, branches, stashes] = await Promise.all([
+        getOpState(root),
+        getStatus(root),
+        getBranches(root),
+        getStashes(root),
+      ]);
+      patchTab(root, { opState, status, branches, stashes });
+    } catch {
+      // Si esto también falla, se queda el mensaje de error genérico y ya.
+    }
+  }, [patchTab]);
 
   const toggleStage = useCallback(
     async (root: string, paths: string[], stage: boolean) => {
@@ -288,6 +368,137 @@ function App() {
       }
     },
     [reload, patchTab, failTab],
+  );
+
+  const doRemote = useCallback(
+    async (root: string, op: "fetch" | "pull" | "push") => {
+      patchTab(root, { remoting: op, error: null });
+      try {
+        if (op === "fetch") await fetchRemote(root);
+        else if (op === "pull") await pullRemote(root);
+        else await pushRemote(root);
+        patchTab(root, { remoting: null });
+        await reload(root);
+      } catch (e) {
+        failTab(root, e);
+      }
+    },
+    [reload, patchTab, failTab],
+  );
+
+  const doOpContinue = useCallback(
+    async (root: string) => {
+      patchTab(root, { opBusy: true, error: null });
+      try {
+        await opContinue(root);
+        patchTab(root, { opBusy: false });
+        await reload(root);
+      } catch (e) {
+        failTab(root, e);
+        // Si "continue" falla es normal que aún queden conflictos por
+        // resolver: op_state sigue siendo el mismo, pero status puede haber
+        // cambiado con lo que ya se resolvió a mano.
+        await refreshVolatile(root);
+      }
+    },
+    [reload, patchTab, failTab, refreshVolatile],
+  );
+
+  const doOpAbort = useCallback(
+    async (root: string) => {
+      if (!window.confirm("¿Abortar y volver al estado de antes de empezar?")) return;
+      patchTab(root, { opBusy: true, error: null });
+      try {
+        await opAbort(root);
+        patchTab(root, { opBusy: false });
+        await reload(root);
+      } catch (e) {
+        failTab(root, e);
+        await refreshVolatile(root);
+      }
+    },
+    [reload, patchTab, failTab, refreshVolatile],
+  );
+
+  const doStashPush = useCallback(
+    async (root: string, message: string, includeUntracked: boolean) => {
+      patchTab(root, { stashBusy: true, error: null });
+      try {
+        await stashPush(root, message, includeUntracked);
+        patchTab(root, { stashBusy: false, stashMsg: "" });
+        await reload(root);
+      } catch (e) {
+        failTab(root, e);
+      }
+    },
+    [reload, patchTab, failTab],
+  );
+
+  const doStashApply = useCallback(
+    async (root: string, index: number, pop: boolean) => {
+      patchTab(root, { stashBusy: true, error: null });
+      try {
+        await stashApply(root, index, pop);
+        patchTab(root, { stashBusy: false });
+        await reload(root);
+      } catch (e) {
+        failTab(root, e);
+        // Un conflicto al aplicar deja archivos sin fusionar en el árbol
+        // (sin op_state — stash no tiene --continue/--abort): refrescar
+        // status para que el panel de Cambios los enseñe.
+        await refreshVolatile(root);
+      }
+    },
+    [reload, patchTab, failTab, refreshVolatile],
+  );
+
+  const doStashDrop = useCallback(
+    async (root: string, index: number) => {
+      if (!window.confirm("¿Borrar este stash? No se puede deshacer.")) return;
+      patchTab(root, { stashBusy: true, error: null });
+      try {
+        await stashDrop(root, index);
+        patchTab(root, { stashBusy: false });
+        await reload(root);
+      } catch (e) {
+        failTab(root, e);
+      }
+    },
+    [reload, patchTab, failTab],
+  );
+
+  const doCherryPick = useCallback(
+    async (root: string, hash: string) => {
+      patchTab(root, { cherryBusy: true, error: null });
+      try {
+        await cherryPick(root, hash);
+        patchTab(root, { cherryBusy: false });
+        await reload(root);
+      } catch (e) {
+        failTab(root, e);
+        // Un cherry-pick en conflicto deja CHERRY_PICK_HEAD: sin esto el
+        // banner de "en curso" nunca aparece y nada queda bloqueado.
+        await refreshVolatile(root);
+      }
+    },
+    [reload, patchTab, failTab, refreshVolatile],
+  );
+
+  const doRebase = useCallback(
+    async (root: string, onto: string) => {
+      if (!onto.trim()) return;
+      if (!window.confirm(`¿Rebasar la rama activa sobre "${onto}"?`)) return;
+      patchTab(root, { rebasing: true, error: null });
+      try {
+        await rebaseOnto(root, onto);
+        patchTab(root, { rebasing: false });
+        await reload(root);
+      } catch (e) {
+        failTab(root, e);
+        await refreshVolatile(root);
+      }
+    },
+    [reload, patchTab, failTab, refreshVolatile],
   );
 
   const applyFilter = useCallback(
@@ -408,6 +619,24 @@ function App() {
             <button onClick={onRefresh} disabled={active.loading}>
               {active.loading ? "…" : "Recargar"}
             </button>
+            <button
+              onClick={() => void doRemote(active.root, "fetch")}
+              disabled={active.remoting !== null}
+            >
+              {active.remoting === "fetch" ? "…" : "Fetch"}
+            </button>
+            <button
+              onClick={() => void doRemote(active.root, "pull")}
+              disabled={active.remoting !== null}
+            >
+              {active.remoting === "pull" ? "…" : "Pull"}
+            </button>
+            <button
+              onClick={() => void doRemote(active.root, "push")}
+              disabled={active.remoting !== null}
+            >
+              {active.remoting === "push" ? "…" : "Push"}
+            </button>
             <form
               className="search"
               onSubmit={(ev) => {
@@ -470,7 +699,10 @@ function App() {
       )}
 
       {openError && <div className="error">{openError}</div>}
-      {active?.error && <div className="error">{active.error}</div>}
+      {/* Con una operación en curso, el banner de conflicto (abajo, en
+          `.commits`) ya explica qué hacer — el error crudo de git detrás
+          (hints en inglés) solo añade ruido para alguien no técnico. */}
+      {active?.error && !active.opState && <div className="error">{active.error}</div>}
 
       {active && (
         <div className="body">
@@ -489,6 +721,10 @@ function App() {
                   <ul>
                     {list.map((b) => {
                       const locked = b.worktree_path !== null && !b.is_head;
+                      // Durante un rebase/cherry-pick/merge a medias no se
+                      // puede cambiar de rama: solo quedan vivos Continuar y
+                      // Abortar en el banner de arriba.
+                      const blocked = locked || active.opState !== null;
                       return (
                         <li
                           key={b.name}
@@ -496,12 +732,14 @@ function App() {
                             locked ? " locked" : ""
                           }`}
                           title={
-                            locked
-                              ? `Abierta en otro worktree: ${b.worktree_path}`
-                              : b.name
+                            active.opState
+                              ? "Hay una operación en curso — continúa o aborta antes de cambiar de rama"
+                              : locked
+                                ? `Abierta en otro worktree: ${b.worktree_path}`
+                                : b.name
                           }
                           onClick={() =>
-                            !locked && void doCheckout(active.root, b.checkout_arg)
+                            !blocked && void doCheckout(active.root, b.checkout_arg)
                           }
                         >
                           {b.is_head && <span className="dot">●</span>}
@@ -514,9 +752,53 @@ function App() {
                 </div>
               );
             })}
+
+            <div className="rebase-box">
+              <div className="branch-group-label">Rebase</div>
+              <select
+                value={active.rebaseTarget}
+                disabled={active.rebasing || active.opState !== null}
+                onChange={(ev) => patchTab(active.root, { rebaseTarget: ev.target.value })}
+              >
+                <option value="">Elige una base…</option>
+                {Array.from(new Set(active.branches.map((b) => b.name))).map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+              <button
+                disabled={
+                  active.rebasing || active.opState !== null || !active.rebaseTarget
+                }
+                onClick={() => void doRebase(active.root, active.rebaseTarget)}
+              >
+                {active.rebasing ? "…" : "Rebasar aquí"}
+              </button>
+            </div>
           </aside>
 
           <section className="commits">
+            {active.opState && (
+              <p className="conflict-banner">
+                {active.opState.kind === "rebase" && "Rebase en curso"}
+                {active.opState.kind === "cherry_pick" && "Cherry-pick en curso"}
+                {active.opState.kind === "merge" && "Merge en curso"}
+                {" — resuelve los archivos en conflicto en tu editor, prepáralos (＋) y luego:"}
+                <button
+                  disabled={active.opBusy}
+                  onClick={() => void doOpContinue(active.root)}
+                >
+                  {active.opBusy ? "…" : "Continuar"}
+                </button>
+                <button
+                  disabled={active.opBusy}
+                  onClick={() => void doOpAbort(active.root)}
+                >
+                  {active.opBusy ? "…" : "Abortar"}
+                </button>
+              </p>
+            )}
             {active.filterQuery.trim() && (
               <p className="filter-info">
                 {active.commits.length} resultados para «{active.filterQuery}» ·{" "}
@@ -559,6 +841,19 @@ function App() {
                         <code>{c.short_hash}</code>
                         <span>{c.author_name}</span>
                         <span>{new Date(c.date).toLocaleString()}</span>
+                        {!isMerge && (
+                          <button
+                            className="link cherry-btn"
+                            title="Aplicar este commit sobre la rama activa (cherry-pick)"
+                            disabled={active.cherryBusy || active.opState !== null}
+                            onClick={(ev) => {
+                              ev.stopPropagation();
+                              void doCherryPick(active.root, c.hash);
+                            }}
+                          >
+                            {active.cherryBusy ? "…" : "⤵"}
+                          </button>
+                        )}
                       </div>
                     </li>
                   );
@@ -702,12 +997,76 @@ function App() {
                 </label>
                 <button
                   type="submit"
-                  disabled={active.committing || !active.commitMsg.trim()}
+                  disabled={
+                    active.committing || !active.commitMsg.trim() || active.opState !== null
+                  }
                 >
                   {active.committing ? "…" : active.amend ? "Amend" : "Commit"}
                 </button>
               </form>
             )}
+
+            <div className="stash-box">
+              <h2>Stash</h2>
+              <ul>
+                {active.stashes.map((s) => (
+                  <li key={s.index} className="stash-item">
+                    <span className="stash-msg" title={s.message}>
+                      {s.message}
+                    </span>
+                    <button
+                      title="Aplicar y quitar de la lista"
+                      disabled={active.stashBusy || active.opState !== null}
+                      onClick={() => void doStashApply(active.root, s.index, true)}
+                    >
+                      Pop
+                    </button>
+                    <button
+                      title="Aplicar sin quitarlo de la lista"
+                      disabled={active.stashBusy || active.opState !== null}
+                      onClick={() => void doStashApply(active.root, s.index, false)}
+                    >
+                      Aplicar
+                    </button>
+                    <button
+                      title="Borrar este stash"
+                      disabled={active.stashBusy}
+                      onClick={() => void doStashDrop(active.root, s.index)}
+                    >
+                      ×
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              {active.status && active.status.entries.length > 0 && (
+                <div className="stashbox">
+                  <input
+                    type="text"
+                    placeholder="Mensaje del stash (opcional)"
+                    value={active.stashMsg}
+                    onChange={(ev) => patchTab(active.root, { stashMsg: ev.target.value })}
+                  />
+                  <label className="amend">
+                    <input
+                      type="checkbox"
+                      checked={active.stashIncludeUntracked}
+                      onChange={(ev) =>
+                        patchTab(active.root, { stashIncludeUntracked: ev.target.checked })
+                      }
+                    />
+                    Incluir archivos sin seguir
+                  </label>
+                  <button
+                    disabled={active.stashBusy || active.opState !== null}
+                    onClick={() =>
+                      void doStashPush(active.root, active.stashMsg, active.stashIncludeUntracked)
+                    }
+                  >
+                    {active.stashBusy ? "…" : "Guardar stash"}
+                  </button>
+                </div>
+              )}
+            </div>
           </aside>
         </div>
       )}

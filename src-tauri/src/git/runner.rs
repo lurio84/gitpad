@@ -9,13 +9,21 @@ use super::error::{GitError, GitResult};
 /// `GIT_TERMINAL_PROMPT=0` fuerza que cualquier petición de credenciales falle en vez
 /// de bloquear el proceso esperando una entrada que nunca llega (no hay TTY). Así un
 /// problema de auth aparece como `CommandFailed` y no como un cuelgue invisible.
+///
+/// `GCM_INTERACTIVE=never` es necesario además: comprobado en vivo (git 2.55 +
+/// Git Credential Manager) que `GIT_TERMINAL_PROMPT=0` NO evita que GCM lance su
+/// propio prompt GUI para un host sin credencial cacheada — ese prompt se queda
+/// esperando input y el proceso `git` no termina nunca. Con esta variable GCM
+/// falla con "Cannot prompt because user interactivity has been disabled" en vez
+/// de abrir esa ventana.
 pub fn run_git_bytes(repo: &Path, args: &[&str]) -> GitResult<Vec<u8>> {
     let mut cmd = Command::new("git");
     cmd.arg("-C")
         .arg(repo)
         .args(args)
         .env("GIT_TERMINAL_PROMPT", "0")
-        .env("GIT_OPTIONAL_LOCKS", "0");
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .env("GCM_INTERACTIVE", "never");
 
     // En Windows, lanzar git.exe desde una app GUI (subsystem "windows") crea una
     // consola que parpadea en cada invocación. CREATE_NO_WINDOW la suprime.
@@ -66,6 +74,7 @@ pub fn run_git_stdin(repo: &Path, args: &[&str], input: &str) -> GitResult<Strin
         .args(args)
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GIT_OPTIONAL_LOCKS", "0")
+        .env("GCM_INTERACTIVE", "never")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());

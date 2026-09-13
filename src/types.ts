@@ -60,3 +60,14 @@ export interface Branch {
   is_head: boolean;
   is_remote: boolean;
 }
+
+/** Rebase/cherry-pick/merge parado a medias por un conflicto. */
+export interface OpState {
+  kind: "rebase" | "cherry_pick" | "merge";
+}
+
+export interface Stash {
+  index: number;
+  /** Tal cual lo da `git stash list` (incluye el prefijo "On <rama>: "). */
+  message: string;
+}

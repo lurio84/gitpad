@@ -343,6 +343,364 @@ fn flujo_ui_status_stage_commit() {
     assert_eq!(log2[0].subject, "cambios de la UI (amend)");
 }
 
+/// fetch/pull/push contra un `origin` bare local: ejercita la fontanería de
+/// red sin depender de conectividad ni credenciales reales.
+#[test]
+fn fetch_pull_push_contra_origin_bare_local() {
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    let base: PathBuf = std::env::temp_dir().join(format!(
+        "gitpad-remote-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let origin = base.join("origin.git");
+    let clone_a = base.join("a");
+    let clone_b = base.join("b");
+    std::fs::create_dir_all(&origin).unwrap();
+    let _guard = scopeguard(&base);
+
+    let git = |dir: &std::path::Path, args: &[&str]| {
+        Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .map(|o| (o.status.success(), String::from_utf8_lossy(&o.stdout).into_owned()))
+            .unwrap_or((false, String::new()))
+    };
+    if !git(&origin, &["init", "-q", "--bare", "-b", "master"]).0 {
+        eprintln!("git no disponible, se salta el test");
+        return;
+    }
+
+    // clone_a: primer autor, empuja el commit inicial al bare.
+    assert!(git(&base, &["clone", "-q", origin.to_str().unwrap(), "a"]).0);
+    git(&clone_a, &["config", "user.email", "a@t"]);
+    git(&clone_a, &["config", "user.name", "a"]);
+    std::fs::write(clone_a.join("f.txt"), "0\n").unwrap();
+    git(&clone_a, &["add", "-A"]);
+    git(&clone_a, &["commit", "-q", "-m", "inicial"]);
+    assert!(super::repo::push(&clone_a).is_ok(), "push del commit inicial (ya tiene upstream tras el clone)");
+
+    // clone_b: segundo autor, aporta un commit propio.
+    assert!(git(&base, &["clone", "-q", origin.to_str().unwrap(), "b"]).0);
+    git(&clone_b, &["config", "user.email", "b@t"]);
+    git(&clone_b, &["config", "user.name", "b"]);
+    std::fs::write(clone_b.join("g.txt"), "0\n").unwrap();
+    git(&clone_b, &["add", "-A"]);
+    git(&clone_b, &["commit", "-q", "-m", "de b"]);
+    super::repo::push(&clone_b).expect("push de b");
+
+    // clone_a: sin fetch, no debería ver el commit de b.
+    let st_before = super::repo::status(&clone_a).expect("status antes de fetch");
+    assert_eq!(st_before.behind, 0, "sin fetch, ahead/behind no debe verse afectado");
+
+    super::repo::fetch(&clone_a).expect("fetch");
+    let st_after = super::repo::status(&clone_a).expect("status tras fetch");
+    assert_eq!(st_after.behind, 1, "tras el fetch, behind debe reflejar el commit de b");
+
+    super::repo::pull(&clone_a).expect("pull (fast-forward)");
+    assert!(clone_a.join("g.txt").exists(), "pull debió traer el archivo de b");
+    let st_clean = super::repo::status(&clone_a).expect("status tras pull");
+    assert_eq!(st_clean.ahead, 0);
+    assert_eq!(st_clean.behind, 0);
+
+    // Divergencia real: b vuelve a comitear, a comitea algo distinto sin fetch.
+    std::fs::write(clone_b.join("h.txt"), "0\n").unwrap();
+    git(&clone_b, &["add", "-A"]);
+    git(&clone_b, &["commit", "-q", "-m", "de b otra vez"]);
+    super::repo::push(&clone_b).expect("push de b, 2a vez");
+
+    std::fs::write(clone_a.join("i.txt"), "0\n").unwrap();
+    git(&clone_a, &["add", "-A"]);
+    git(&clone_a, &["commit", "-q", "-m", "de a, diverge"]);
+    super::repo::fetch(&clone_a).expect("fetch antes de pull divergente");
+    assert!(
+        super::repo::pull(&clone_a).is_err(),
+        "pull --ff-only debe fallar (con mensaje, no colgarse) cuando diverge"
+    );
+}
+
+/// `push` en HEAD desprendido falla con mensaje legible, sin llegar a
+/// invocar `git push -u <remoto> <rama>` con una rama inexistente.
+#[test]
+fn push_en_head_desprendido_falla_legible() {
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    let dir: PathBuf = std::env::temp_dir().join(format!(
+        "gitpad-detached-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let _guard = scopeguard(&dir);
+
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .args(args)
+            .current_dir(&dir)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    };
+    if !git(&["init", "-q", "-b", "master"]) {
+        eprintln!("git no disponible, se salta el test");
+        return;
+    }
+    git(&["config", "user.email", "t@t"]);
+    git(&["config", "user.name", "t"]);
+    std::fs::write(dir.join("f.txt"), "0\n").unwrap();
+    git(&["add", "-A"]);
+    git(&["commit", "-q", "-m", "init"]);
+    git(&["checkout", "-q", "--detach", "HEAD"]);
+
+    let err = super::repo::push(&dir).expect_err("HEAD desprendido debe rechazar el push");
+    assert!(
+        matches!(err, super::error::GitError::Parse(_)),
+        "se esperaba un error de parseo/precondición, no uno de red: {err:?}"
+    );
+}
+
+/// stash: guardar (con y sin `-u`), listar, aplicar/pop y borrar, verificado
+/// contra `git stash list` / `git status` reales.
+#[test]
+fn stash_push_list_apply_drop() {
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    let dir: PathBuf = std::env::temp_dir().join(format!(
+        "gitpad-stash-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let _guard = scopeguard(&dir);
+
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .args(args)
+            .current_dir(&dir)
+            .output()
+            .map(|o| (o.status.success(), String::from_utf8_lossy(&o.stdout).into_owned()))
+            .unwrap_or((false, String::new()))
+    };
+    if !git(&["init", "-q", "-b", "master"]).0 {
+        eprintln!("git no disponible, se salta el test");
+        return;
+    }
+    git(&["config", "user.email", "t@t"]);
+    git(&["config", "user.name", "t"]);
+    std::fs::write(dir.join("base.txt"), "0\n").unwrap();
+    git(&["add", "-A"]);
+    git(&["commit", "-q", "-m", "base"]);
+
+    // Un cambio a un archivo seguido + uno nuevo sin seguir.
+    std::fs::write(dir.join("base.txt"), "0\n1\n").unwrap();
+    std::fs::write(dir.join("nuevo.txt"), "x\n").unwrap();
+
+    super::repo::stash_push(&dir, "con untracked", true).expect("stash -u");
+    let (_, st_out) = git(&["status", "--porcelain"]);
+    assert!(st_out.trim().is_empty(), "el árbol debe quedar limpio tras -u: {st_out:?}");
+
+    let list = super::repo::stash_list(&dir).expect("stash list");
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0].index, 0);
+    // `%gs` de git incluye el prefijo "On <rama>: " — no es un mensaje limpio,
+    // es el mismo texto que enseña `git stash list`.
+    assert_eq!(list[0].message, "On master: con untracked");
+
+    super::repo::stash_apply(&dir, 0, true).expect("stash pop");
+    assert!(dir.join("nuevo.txt").exists(), "pop debió traer el archivo sin seguir");
+    let list2 = super::repo::stash_list(&dir).expect("stash list tras pop");
+    assert!(list2.is_empty(), "pop debe quitar el stash de la lista");
+
+    // Sin -u: el archivo sin seguir queda fuera del stash.
+    std::fs::write(dir.join("base.txt"), "0\n2\n").unwrap();
+    std::fs::write(dir.join("otro.txt"), "y\n").unwrap();
+    super::repo::stash_push(&dir, "sin untracked", false).expect("stash sin -u");
+    assert!(dir.join("otro.txt").exists(), "sin -u, lo sin seguir no debe guardarse");
+    super::repo::stash_drop(&dir, 0).expect("stash drop");
+    assert!(super::repo::stash_list(&dir).expect("stash list final").is_empty());
+}
+
+/// cherry-pick limpio: el commit aparece en la rama destino con el mismo
+/// mensaje, verificado contra `git log` real.
+#[test]
+fn cherry_pick_limpio() {
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    let dir: PathBuf = std::env::temp_dir().join(format!(
+        "gitpad-cherry-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let _guard = scopeguard(&dir);
+
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .args(args)
+            .current_dir(&dir)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    };
+    if !git(&["init", "-q", "-b", "master"]) {
+        eprintln!("git no disponible, se salta el test");
+        return;
+    }
+    git(&["config", "user.email", "t@t"]);
+    git(&["config", "user.name", "t"]);
+    std::fs::write(dir.join("base.txt"), "0\n").unwrap();
+    git(&["add", "-A"]);
+    git(&["commit", "-q", "-m", "base"]);
+    git(&["checkout", "-q", "-b", "feature"]);
+    std::fs::write(dir.join("feature.txt"), "f\n").unwrap();
+    git(&["add", "-A"]);
+    git(&["commit", "-q", "-m", "commit de feature"]);
+    let out = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(&dir)
+        .output()
+        .unwrap();
+    let hash = String::from_utf8_lossy(&out.stdout).trim().to_string();
+
+    git(&["checkout", "-q", "master"]);
+    super::repo::cherry_pick(&dir, &hash).expect("cherry-pick limpio");
+    let log = super::repo::log(&dir, 0, 5, &super::repo::LogFilter::None).expect("log");
+    assert_eq!(log[0].subject, "commit de feature");
+    assert!(dir.join("feature.txt").exists());
+
+    assert!(super::repo::cherry_pick(&dir, "no-hex").is_err());
+}
+
+/// Rebase que provoca un conflicto a propósito: `op_state` lo detecta,
+/// `op_abort` devuelve el repo EXACTAMENTE al `HEAD` previo (mismo hash), y
+/// en una segunda pasada resolver a mano + `op_continue` termina el rebase.
+#[test]
+fn rebase_conflicto_abort_y_continue() {
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    let dir: PathBuf = std::env::temp_dir().join(format!(
+        "gitpad-rebase-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let _guard = scopeguard(&dir);
+
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .args(args)
+            .current_dir(&dir)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    };
+    let git_out = |args: &[&str]| -> String {
+        let o = Command::new("git").args(args).current_dir(&dir).output().unwrap();
+        String::from_utf8_lossy(&o.stdout).trim().to_string()
+    };
+    if !git(&["init", "-q", "-b", "master"]) {
+        eprintln!("git no disponible, se salta el test");
+        return;
+    }
+    git(&["config", "user.email", "t@t"]);
+    git(&["config", "user.name", "t"]);
+    std::fs::write(dir.join("f.txt"), "base\n").unwrap();
+    git(&["add", "-A"]);
+    git(&["commit", "-q", "-m", "base"]);
+
+    // master avanza modificando f.txt.
+    std::fs::write(dir.join("f.txt"), "base\nmaster\n").unwrap();
+    git(&["commit", "-qam", "cambio en master"]);
+
+    // feature, desde el commit base, modifica la MISMA línea de forma
+    // incompatible: garantiza conflicto al rebasar.
+    git(&["checkout", "-q", "-b", "feature", "HEAD~1"]);
+    std::fs::write(dir.join("f.txt"), "base\nfeature\n").unwrap();
+    git(&["commit", "-qam", "cambio en feature"]);
+
+    assert!(super::repo::op_state(&dir).expect("op_state limpio").is_none());
+
+    let head_before = git_out(&["rev-parse", "HEAD"]);
+    let result = super::repo::rebase(&dir, "master");
+    assert!(result.is_err(), "el rebase debe fallar por conflicto, no colgarse");
+
+    let state = super::repo::op_state(&dir).expect("op_state").expect("debe haber un rebase en curso");
+    assert_eq!(state.kind, "rebase");
+
+    // Abort: HEAD vuelve exactamente al commit de antes del rebase.
+    super::repo::op_abort(&dir).expect("op_abort");
+    assert!(super::repo::op_state(&dir).expect("op_state tras abort").is_none());
+    assert_eq!(git_out(&["rev-parse", "HEAD"]), head_before, "abort debe dejar HEAD igual que antes");
+
+    // Segunda pasada: rebase, resolver a mano, continuar.
+    super::repo::rebase(&dir, "master").expect_err("vuelve a conflictuar igual");
+    assert!(super::repo::op_state(&dir).expect("op_state 2").is_some());
+    std::fs::write(dir.join("f.txt"), "base\nmaster\nfeature\n").unwrap();
+    git(&["add", "-A"]);
+    super::repo::op_continue(&dir).expect("op_continue tras resolver a mano");
+    assert!(super::repo::op_state(&dir).expect("op_state final").is_none());
+
+    let log = super::repo::log(&dir, 0, 10, &super::repo::LogFilter::None).expect("log final");
+    assert!(log.iter().any(|c| c.subject == "cambio en feature"), "el commit rebasado debe seguir en el historial");
+    let content = std::fs::read_to_string(dir.join("f.txt")).unwrap();
+    assert_eq!(content, "base\nmaster\nfeature\n");
+}
+
+/// Mientras hay una operación en curso, `op_continue`/`op_abort` sin ninguna
+/// pendiente deben fallar con mensaje, no entrar en pánico.
+#[test]
+fn op_continue_abort_sin_operacion_en_curso_es_error() {
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    let dir: PathBuf = std::env::temp_dir().join(format!(
+        "gitpad-noop-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let _guard = scopeguard(&dir);
+
+    let ok = Command::new("git")
+        .args(["init", "-q", "-b", "master"])
+        .current_dir(&dir)
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if !ok {
+        eprintln!("git no disponible, se salta el test");
+        return;
+    }
+
+    assert!(super::repo::op_continue(&dir).is_err());
+    assert!(super::repo::op_abort(&dir).is_err());
+}
+
 /// Limpieza best-effort del directorio temporal al salir del test.
 fn scopeguard(dir: &std::path::Path) -> impl Drop + '_ {
     struct G<'a>(&'a std::path::Path);

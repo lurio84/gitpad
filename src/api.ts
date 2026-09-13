@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import type { Branch, Commit, RepoInfo, Status } from "./types";
+import type { Branch, Commit, OpState, RepoInfo, Stash, Status } from "./types";
 
 export type LogFilterMode = "none" | "message" | "content";
 
@@ -69,4 +69,60 @@ export function getBranches(path: string): Promise<Branch[]> {
 /** `name` debe ser `checkout_arg` de la rama, nunca `name`. */
 export function checkoutBranch(path: string, name: string): Promise<void> {
   return invoke("checkout_branch", { path, name });
+}
+
+export function fetchRemote(path: string): Promise<void> {
+  return invoke("fetch_remote", { path });
+}
+
+export function pullRemote(path: string): Promise<void> {
+  return invoke("pull_remote", { path });
+}
+
+export function pushRemote(path: string): Promise<void> {
+  return invoke("push_remote", { path });
+}
+
+export function getOpState(path: string): Promise<OpState | null> {
+  return invoke("get_op_state", { path });
+}
+
+export function opContinue(path: string): Promise<void> {
+  return invoke("op_continue", { path });
+}
+
+export function opAbort(path: string): Promise<void> {
+  return invoke("op_abort", { path });
+}
+
+export function stashPush(
+  path: string,
+  message: string,
+  includeUntracked: boolean,
+): Promise<void> {
+  return invoke("stash_push", { path, message, includeUntracked });
+}
+
+export function getStashes(path: string): Promise<Stash[]> {
+  return invoke("get_stashes", { path });
+}
+
+export function stashApply(path: string, index: number, pop: boolean): Promise<void> {
+  return invoke("stash_apply", { path, index, pop });
+}
+
+export function stashDrop(path: string, index: number): Promise<void> {
+  return invoke("stash_drop", { path, index });
+}
+
+export function cherryPick(path: string, hash: string): Promise<void> {
+  return invoke("cherry_pick", { path, hash });
+}
+
+export function rebaseOnto(path: string, onto: string): Promise<void> {
+  return invoke("rebase_onto", { path, onto });
+}
+
+export function getDefaultBase(path: string): Promise<string | null> {
+  return invoke("get_default_base", { path });
 }

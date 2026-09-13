@@ -3,7 +3,7 @@ mod git;
 use std::path::Path;
 
 use git::error::GitResult;
-use git::repo::{Branch, Commit, LogFilter, RepoInfo, Status};
+use git::repo::{Branch, Commit, LogFilter, OpState, RepoInfo, Stash, Status};
 
 // `async` sobre una fn síncrona: Tauri la ejecuta en su threadpool en vez de
 // inline en el hilo del IPC, así un `git log` lento sobre un repo grande no
@@ -39,6 +39,71 @@ fn get_branches(path: String) -> GitResult<Vec<Branch>> {
 #[tauri::command(async)]
 fn checkout_branch(path: String, name: String) -> GitResult<()> {
     git::repo::checkout(Path::new(&path), &name)
+}
+
+#[tauri::command(async)]
+fn fetch_remote(path: String) -> GitResult<()> {
+    git::repo::fetch(Path::new(&path))
+}
+
+#[tauri::command(async)]
+fn pull_remote(path: String) -> GitResult<()> {
+    git::repo::pull(Path::new(&path))
+}
+
+#[tauri::command(async)]
+fn push_remote(path: String) -> GitResult<()> {
+    git::repo::push(Path::new(&path))
+}
+
+#[tauri::command(async)]
+fn get_op_state(path: String) -> GitResult<Option<OpState>> {
+    git::repo::op_state(Path::new(&path))
+}
+
+#[tauri::command(async)]
+fn op_continue(path: String) -> GitResult<()> {
+    git::repo::op_continue(Path::new(&path))
+}
+
+#[tauri::command(async)]
+fn op_abort(path: String) -> GitResult<()> {
+    git::repo::op_abort(Path::new(&path))
+}
+
+#[tauri::command(async)]
+fn stash_push(path: String, message: String, include_untracked: bool) -> GitResult<()> {
+    git::repo::stash_push(Path::new(&path), &message, include_untracked)
+}
+
+#[tauri::command(async)]
+fn get_stashes(path: String) -> GitResult<Vec<Stash>> {
+    git::repo::stash_list(Path::new(&path))
+}
+
+#[tauri::command(async)]
+fn stash_apply(path: String, index: u32, pop: bool) -> GitResult<()> {
+    git::repo::stash_apply(Path::new(&path), index, pop)
+}
+
+#[tauri::command(async)]
+fn stash_drop(path: String, index: u32) -> GitResult<()> {
+    git::repo::stash_drop(Path::new(&path), index)
+}
+
+#[tauri::command(async)]
+fn cherry_pick(path: String, hash: String) -> GitResult<()> {
+    git::repo::cherry_pick(Path::new(&path), &hash)
+}
+
+#[tauri::command(async)]
+fn rebase_onto(path: String, onto: String) -> GitResult<()> {
+    git::repo::rebase(Path::new(&path), &onto)
+}
+
+#[tauri::command(async)]
+fn get_default_base(path: String) -> GitResult<Option<String>> {
+    git::repo::default_base(Path::new(&path))
 }
 
 #[tauri::command(async)]
@@ -85,7 +150,20 @@ pub fn run() {
             unstage_paths,
             commit,
             get_branches,
-            checkout_branch
+            checkout_branch,
+            fetch_remote,
+            pull_remote,
+            push_remote,
+            get_op_state,
+            op_continue,
+            op_abort,
+            stash_push,
+            get_stashes,
+            stash_apply,
+            stash_drop,
+            cherry_pick,
+            rebase_onto,
+            get_default_base
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

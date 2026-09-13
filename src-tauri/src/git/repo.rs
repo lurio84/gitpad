@@ -501,6 +501,218 @@ pub fn checkout(repo: &Path, name: &str) -> GitResult<()> {
     run_git(repo, &["checkout", name]).map(|_| ())
 }
 
+/// `-c` que limitan las tres operaciones de red: sin ellos una conexión
+/// muerta (no un rechazo, un silencio) se queda colgada indefinidamente.
+/// `GIT_TERMINAL_PROMPT=0`/`GCM_INTERACTIVE=never` (en `runner.rs`) cubren el
+/// caso de credenciales; esto cubre el de red. 30s por debajo de 1000 B/s.
+const NET_TIMEOUT: [&str; 4] = [
+    "-c",
+    "http.lowSpeedLimit=1000",
+    "-c",
+    "http.lowSpeedTime=30",
+];
+
+/// Descarga referencias de todos los remotos configurados y poda las que ya
+/// no existen ahí. No toca el árbol de trabajo ni el índice.
+pub fn fetch(repo: &Path) -> GitResult<()> {
+    let mut args: Vec<&str> = NET_TIMEOUT.to_vec();
+    args.extend(["fetch", "--all", "--prune"]);
+    run_git(repo, &args).map(|_| ())
+}
+
+/// Trae los cambios del upstream de la rama activa. `--ff-only` a propósito:
+/// si divergió, fallar con un mensaje claro es preferible a un merge
+/// automático que añade un commit que luego no sabría deshacer. La forma de
+/// resolver una divergencia es el rebase (ver `rebase()`).
+pub fn pull(repo: &Path) -> GitResult<()> {
+    let mut args: Vec<&str> = NET_TIMEOUT.to_vec();
+    args.extend(["pull", "--ff-only"]);
+    run_git(repo, &args).map(|_| ())
+}
+
+/// Envía la rama activa a su remoto. Si no tiene upstream, hace
+/// `push -u <remoto> <rama>` contra el primer remoto configurado. En HEAD
+/// desprendido no hay rama que subir: error legible antes de tocar la red.
+pub fn push(repo: &Path) -> GitResult<()> {
+    let st = status(repo)?;
+    let branch = st.branch.ok_or_else(|| {
+        GitError::Parse("HEAD desprendido: no hay rama que subir".into())
+    })?;
+
+    let mut args: Vec<String> = NET_TIMEOUT.iter().map(|s| s.to_string()).collect();
+    args.push("push".to_string());
+    if st.upstream.is_none() {
+        let remote = first_remote(repo)?;
+        args.push("-u".to_string());
+        args.push(remote);
+        args.push(branch);
+    }
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    run_git(repo, &args).map(|_| ())
+}
+
+/// Primer remoto configurado (normalmente "origin"). Sin remoto no hay a
+/// dónde hacer push: error legible en vez de dejar que git falle con un
+/// mensaje más críptico.
+fn first_remote(repo: &Path) -> GitResult<String> {
+    let out = run_git(repo, &["remote"])?;
+    out.lines()
+        .next()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(String::from)
+        .ok_or_else(|| GitError::Parse("el repositorio no tiene ningún remoto configurado".into()))
+}
+
+#[derive(Debug, Serialize)]
+pub struct OpState {
+    /// "rebase" | "cherry_pick" | "merge"
+    pub kind: String,
+}
+
+/// Detecta si hay un rebase/cherry-pick/merge a medio terminar (parado por un
+/// conflicto). `status --porcelain=v2` no reporta esto — solo lista archivos
+/// en conflicto, no la operación que los dejó ahí. Se comprueba la existencia
+/// de los archivos de estado dentro del git-dir **absoluto** (no relativo:
+/// nuestro proceso no comparte cwd con el `git` que resuelve `--git-path`,
+/// así que una ruta relativa se comprobaría desde el directorio equivocado).
+/// `--absolute-git-dir` además resuelve al git-dir del worktree correcto si
+/// el repo abierto es uno secundario.
+pub fn op_state(repo: &Path) -> GitResult<Option<OpState>> {
+    let git_dir = run_git(repo, &["rev-parse", "--absolute-git-dir"])?;
+    let git_dir = Path::new(git_dir.trim());
+    let kind = if git_dir.join("rebase-merge").exists() || git_dir.join("rebase-apply").exists() {
+        Some("rebase")
+    } else if git_dir.join("CHERRY_PICK_HEAD").exists() {
+        Some("cherry_pick")
+    } else if git_dir.join("MERGE_HEAD").exists() {
+        Some("merge")
+    } else {
+        None
+    };
+    Ok(kind.map(|k| OpState { kind: k.to_string() }))
+}
+
+/// Continúa la operación en curso tras resolver los conflictos a mano (en su
+/// editor de siempre — el editor de conflictos está fuera de alcance de
+/// gitpad). `core.editor=true` evita que git intente abrir un editor
+/// interactivo para el mensaje de commit, que se quedaría esperando una
+/// entrada que nunca llega.
+pub fn op_continue(repo: &Path) -> GitResult<()> {
+    let state = op_state(repo)?
+        .ok_or_else(|| GitError::Parse("no hay ninguna operación en curso".into()))?;
+    let args: &[&str] = match state.kind.as_str() {
+        "rebase" => &["-c", "core.editor=true", "rebase", "--continue"],
+        "cherry_pick" => &["-c", "core.editor=true", "cherry-pick", "--continue"],
+        "merge" => &["-c", "core.editor=true", "commit", "--no-edit"],
+        _ => unreachable!("op_state solo produce estos tres valores"),
+    };
+    run_git(repo, args).map(|_| ())
+}
+
+/// Aborta la operación en curso, devolviendo el repo al estado previo.
+pub fn op_abort(repo: &Path) -> GitResult<()> {
+    let state = op_state(repo)?
+        .ok_or_else(|| GitError::Parse("no hay ninguna operación en curso".into()))?;
+    let args: &[&str] = match state.kind.as_str() {
+        "rebase" => &["rebase", "--abort"],
+        "cherry_pick" => &["cherry-pick", "--abort"],
+        "merge" => &["merge", "--abort"],
+        _ => unreachable!("op_state solo produce estos tres valores"),
+    };
+    run_git(repo, args).map(|_| ())
+}
+
+#[derive(Debug, Serialize)]
+pub struct Stash {
+    pub index: u32,
+    pub message: String,
+}
+
+/// Guarda los cambios a medias. `include_untracked` decide si se llevan
+/// también los archivos sin seguir (`git stash` los ignora por defecto, algo
+/// que sorprende a quien espera "guardar todo lo que tengo a medias") — la UI
+/// lo pide siempre explícito, nunca implícito en una dirección u otra.
+pub fn stash_push(repo: &Path, message: &str, include_untracked: bool) -> GitResult<()> {
+    let mut args = vec!["stash", "push"];
+    if include_untracked {
+        args.push("-u");
+    }
+    let msg = message.trim();
+    if !msg.is_empty() {
+        args.push("-m");
+        args.push(msg);
+    }
+    run_git(repo, &args).map(|_| ())
+}
+
+pub fn stash_list(repo: &Path) -> GitResult<Vec<Stash>> {
+    let fmt = format!("--format=%gd{FS}%gs");
+    let out = run_git(repo, &["stash", "list", &fmt])?;
+    let mut stashes = Vec::new();
+    for line in out.lines() {
+        let f: Vec<&str> = line.splitn(2, FS).collect();
+        if f.len() != 2 {
+            return Err(GitError::Parse(format!("línea de stash inesperada: {line}")));
+        }
+        let index = f[0]
+            .strip_prefix("stash@{")
+            .and_then(|s| s.strip_suffix('}'))
+            .and_then(|s| s.parse::<u32>().ok())
+            .ok_or_else(|| GitError::Parse(format!("índice de stash inválido: {}", f[0])))?;
+        stashes.push(Stash { index, message: f[1].to_string() });
+    }
+    Ok(stashes)
+}
+
+/// Aplica un stash. `pop` además lo borra de la lista si se aplicó sin
+/// conflicto (si hay conflicto, git lo deja en la lista a propósito).
+pub fn stash_apply(repo: &Path, index: u32, pop: bool) -> GitResult<()> {
+    let stash_ref = format!("stash@{{{index}}}");
+    let sub = if pop { "pop" } else { "apply" };
+    run_git(repo, &["stash", sub, &stash_ref]).map(|_| ())
+}
+
+pub fn stash_drop(repo: &Path, index: u32) -> GitResult<()> {
+    let stash_ref = format!("stash@{{{index}}}");
+    run_git(repo, &["stash", "drop", &stash_ref]).map(|_| ())
+}
+
+/// Aplica un commit existente encima de HEAD. Un cherry-pick limpio no
+/// necesita editor (reutiliza el mensaje original); si para en conflicto,
+/// se resuelve con `op_continue`/`op_abort`.
+pub fn cherry_pick(repo: &Path, hash: &str) -> GitResult<()> {
+    if hash.is_empty() || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(GitError::Parse(format!("hash de commit inválido: {hash}")));
+    }
+    run_git(repo, &["cherry-pick", hash]).map(|_| ())
+}
+
+/// Rebase simple: "traer los cambios de `onto` a mi rama" (confirmado por
+/// Bernardo — nada de reordenar/aplastar interactivo). `core.editor=true`
+/// evita que un rebase sin conflicto que aun así quisiera abrir un editor
+/// (p. ej. por un merge commit) se quede colgado.
+pub fn rebase(repo: &Path, onto: &str) -> GitResult<()> {
+    if onto.trim().is_empty() {
+        return Err(GitError::Parse("falta la rama base para el rebase".into()));
+    }
+    run_git(repo, &["-c", "core.editor=true", "rebase", onto]).map(|_| ())
+}
+
+/// Rama por defecto del remoto (`refs/remotes/origin/HEAD`), si existe. Solo
+/// la fija un `clone` o un `git remote set-head` explícito — en su ausencia
+/// no se adivina "main" ni "master": la UI ofrece el selector de ramas.
+pub fn default_base(repo: &Path) -> GitResult<Option<String>> {
+    match run_git(
+        repo,
+        &["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],
+    ) {
+        Ok(s) => Ok(Some(s.trim().to_string())),
+        Err(GitError::CommandFailed { code: 1, .. }) => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
 #[cfg(test)]
 pub(super) fn parse_status_tokens_for_test(tokens: Vec<String>) -> GitResult<Status> {
     parse_status_tokens(tokens)
