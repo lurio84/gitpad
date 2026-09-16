@@ -38,6 +38,13 @@ de depuración de WebView2.
      multi-archivo y uno de merge; para probar renombrados (necesitan `orig_path`
      para que git empareje el rename, ver `commit_file_diff` en `repo.rs`) o rutas
      no-ASCII, añadir esos commits al repo de fixture a mano.
+   - `cdp-split-diff.mjs <ruta-a-un-repo> <hash-de-commit>` — vista side-by-side:
+     alineación de columnas entre filas de un mismo archivo, ausencia de
+     solapamiento entre `.split-ln`/`.split-text`, y si el panel necesita scroll
+     horizontal (avisa, no falla — un commit con líneas muy largas sí lo necesita
+     legítimamente). A diferencia de los demás, el target de CDP acepta tanto
+     `localhost:1420` (dev) como `tauri.localhost` (binario de producción) sin
+     tocar el script — patrón a copiar si se retoca alguno de los otros.
    - También sirve para verificar el **binario de producción** (`npm run tauri
      build`, sin `--no-bundle`): la URL cambia de `http://localhost:1420` a
      `http://tauri.localhost`, y hace falta borrar
