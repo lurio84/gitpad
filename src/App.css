@@ -412,7 +412,7 @@ body {
 
 .split-file {
   display: grid;
-  grid-template-columns: 3.5em 1fr 3.5em 1fr;
+  grid-template-columns: 3.5em minmax(0, 1fr) 3.5em minmax(0, 1fr);
 }
 
 .split-file .dl.meta {
@@ -434,7 +434,9 @@ body {
 .split-text {
   padding: 0 8px 0 4px;
   border-left: 1px solid var(--border);
-  white-space: pre;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
 
 .split-text.add {
