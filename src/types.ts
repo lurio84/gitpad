@@ -66,6 +66,15 @@ export interface OpState {
   kind: "rebase" | "cherry_pick" | "merge";
 }
 
+/** Un archivo tocado por un commit (`git show --name-status`). */
+export interface CommitFile {
+  path: string;
+  /** Ruta original, solo en renombrados. */
+  orig_path: string | null;
+  /** "A" | "M" | "D" | "R100" | ... tal cual lo da `--name-status`. */
+  status: string;
+}
+
 export interface Stash {
   index: number;
   /** Tal cual lo da `git stash list` (incluye el prefijo "On <rama>: "). */

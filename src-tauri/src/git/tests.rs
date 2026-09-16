@@ -216,6 +216,184 @@ fn commit_diff_contra_el_padre() {
     assert!(super::repo::commit_diff(&dir, "no-hex").is_err());
 }
 
+/// `commit_files` cubre: commit normal, commit raíz, renombrado (3 registros
+/// NUL), ruta no-ASCII y merge (lista vacía, igual que `commit_diff` da diff
+/// vacío en un merge).
+#[test]
+fn commit_files_casos() {
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    let dir: PathBuf = std::env::temp_dir().join(format!(
+        "gitpad-cfiles-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let _guard = scopeguard(&dir);
+
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .args(args)
+            .current_dir(&dir)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    };
+    let git_out = |args: &[&str]| {
+        String::from_utf8_lossy(
+            &Command::new("git")
+                .args(args)
+                .current_dir(&dir)
+                .output()
+                .unwrap()
+                .stdout,
+        )
+        .trim()
+        .to_string()
+    };
+    if !git(&["init", "-q", "-b", "master"]) {
+        eprintln!("git no disponible, se salta el test");
+        return;
+    }
+    git(&["config", "user.email", "t@t"]);
+    git(&["config", "user.name", "t"]);
+
+    // Commit raíz: sin padre, diffea contra el árbol vacío.
+    std::fs::write(dir.join("f.txt"), "uno\n").unwrap();
+    git(&["add", "-A"]);
+    git(&["commit", "-q", "-m", "raiz"]);
+    let root_hash = git_out(&["rev-parse", "HEAD"]);
+    let root_files = super::repo::commit_files(&dir, &root_hash).expect("commit_files raiz");
+    assert_eq!(root_files.len(), 1);
+    assert_eq!(root_files[0].path, "f.txt");
+    assert_eq!(root_files[0].status, "A");
+    assert!(root_files[0].orig_path.is_none());
+
+    // Commit normal: modifica f.txt.
+    std::fs::write(dir.join("f.txt"), "uno\ndos\n").unwrap();
+    git(&["commit", "-qam", "modifica"]);
+    let mod_hash = git_out(&["rev-parse", "HEAD"]);
+    let mod_files = super::repo::commit_files(&dir, &mod_hash).expect("commit_files modifica");
+    assert_eq!(mod_files.len(), 1);
+    assert_eq!(mod_files[0].path, "f.txt");
+    assert_eq!(mod_files[0].status, "M");
+
+    // Renombrado: 3 registros NUL (status, ruta vieja, ruta nueva).
+    git(&["mv", "f.txt", "g.txt"]);
+    git(&["commit", "-qam", "renombra"]);
+    let ren_hash = git_out(&["rev-parse", "HEAD"]);
+    let ren_files = super::repo::commit_files(&dir, &ren_hash).expect("commit_files renombra");
+    assert_eq!(ren_files.len(), 1);
+    assert_eq!(ren_files[0].path, "g.txt");
+    assert_eq!(ren_files[0].orig_path.as_deref(), Some("f.txt"));
+    assert!(ren_files[0].status.starts_with('R'), "status: {}", ren_files[0].status);
+
+    // Ruta no-ASCII: con `-z` no debe salir octal-escapada ni corrompida.
+    std::fs::write(dir.join("café.txt"), "leche\n").unwrap();
+    git(&["add", "-A"]);
+    git(&["commit", "-q", "-m", "no-ascii"]);
+    let na_hash = git_out(&["rev-parse", "HEAD"]);
+    let na_files = super::repo::commit_files(&dir, &na_hash).expect("commit_files no-ascii");
+    assert_eq!(na_files.len(), 1);
+    assert_eq!(na_files[0].path, "café.txt");
+
+    // Merge: dos ramas divergentes, sin --first-parent → lista vacía, igual
+    // que commit_diff da diff vacío para un merge.
+    git(&["checkout", "-qb", "rama"]);
+    std::fs::write(dir.join("rama.txt"), "rama\n").unwrap();
+    git(&["add", "-A"]);
+    git(&["commit", "-q", "-m", "en rama"]);
+    git(&["checkout", "-q", "master"]);
+    std::fs::write(dir.join("master.txt"), "master\n").unwrap();
+    git(&["add", "-A"]);
+    git(&["commit", "-q", "-m", "en master"]);
+    git(&["merge", "-q", "--no-ff", "-m", "merge", "rama"]);
+    let merge_hash = git_out(&["rev-parse", "HEAD"]);
+    let merge_files = super::repo::commit_files(&dir, &merge_hash).expect("commit_files merge");
+    assert!(merge_files.is_empty(), "merge debe dar lista vacía: {merge_files:?}");
+
+    assert!(super::repo::commit_files(&dir, "no-hex").is_err());
+}
+
+/// `commit_file_diff` para un archivo renombrado necesita la ruta vieja
+/// (`orig_path`) además de la nueva: un pathspec restringido solo a la ruta
+/// nueva no empareja con la vieja y git enseña un archivo nuevo en vez de un
+/// renombrado. Cubre también el viaje de ida y vuelta de una ruta no-ASCII
+/// (con `-c core.quotePath=false` no debe salir octal-escapada).
+#[test]
+fn commit_file_diff_renombrado_necesita_ruta_original() {
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    let dir: PathBuf = std::env::temp_dir().join(format!(
+        "gitpad-cfdiff-ren-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let _guard = scopeguard(&dir);
+
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .args(args)
+            .current_dir(&dir)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    };
+    let git_out = |args: &[&str]| {
+        String::from_utf8_lossy(
+            &Command::new("git")
+                .args(args)
+                .current_dir(&dir)
+                .output()
+                .unwrap()
+                .stdout,
+        )
+        .trim()
+        .to_string()
+    };
+    if !git(&["init", "-q", "-b", "master"]) {
+        eprintln!("git no disponible, se salta el test");
+        return;
+    }
+    git(&["config", "user.email", "t@t"]);
+    git(&["config", "user.name", "t"]);
+
+    std::fs::write(dir.join("b.txt"), "b\n").unwrap();
+    git(&["add", "-A"]);
+    git(&["commit", "-q", "-m", "b"]);
+    git(&["mv", "b.txt", "café.txt"]);
+    git(&["commit", "-q", "-m", "renombra"]);
+    let hash = git_out(&["rev-parse", "HEAD"]);
+
+    // Sin orig_path: pathspec restringido a la ruta nueva no empareja con la
+    // vieja, git no ve el rename y muestra un archivo nuevo — el bug real.
+    let broken = super::repo::commit_file_diff(&dir, &hash, "café.txt", None)
+        .expect("commit_file_diff sin orig_path");
+    assert!(
+        broken.contains("new file mode"),
+        "se esperaba reproducir el bug (archivo nuevo, no rename):\n{broken}"
+    );
+
+    // Con orig_path: git empareja el rename.
+    let fixed = super::repo::commit_file_diff(&dir, &hash, "café.txt", Some("b.txt"))
+        .expect("commit_file_diff con orig_path");
+    assert!(fixed.contains("rename from b.txt"), "diff:\n{fixed}");
+    assert!(fixed.contains("rename to café.txt"), "diff:\n{fixed}");
+    assert!(
+        !fixed.contains("\\303\\251"),
+        "la ruta no debe salir octal-escapada:\n{fixed}"
+    );
+}
+
 /// stage → commit → unstage a través de la capa, con rutas raras. Comprueba
 /// contra `git status` real que el índice quedó como se espera.
 #[test]

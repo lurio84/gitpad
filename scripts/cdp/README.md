@@ -30,6 +30,23 @@ de depuración de WebView2.
      regresión de altura de Fase 3 (44px no bastaba, hacían falta 68px).
    - `cdp-shot.mjs <ruta-de-salida.png>` — captura de pantalla + errores de consola
      posteriores a la conexión (para pillar violaciones de CSP, 404, etc.).
+   - `cdp-commit-files.mjs <ruta-a-un-repo>` — FEAT-001 (listado de archivos de un
+     commit, diff de un solo archivo, toggle side-by-side/unified): clic en un
+     commit con varios archivos, clic en uno de ellos, comprueba que el diff queda
+     filtrado a ese archivo, prueba el toggle y su persistencia en `localStorage`,
+     y que un commit de merge no rompe nada. El fixture necesita un commit
+     multi-archivo y uno de merge; para probar renombrados (necesitan `orig_path`
+     para que git empareje el rename, ver `commit_file_diff` en `repo.rs`) o rutas
+     no-ASCII, añadir esos commits al repo de fixture a mano.
+   - También sirve para verificar el **binario de producción** (`npm run tauri
+     build`, sin `--no-bundle`): la URL cambia de `http://localhost:1420` a
+     `http://tauri.localhost`, y hace falta borrar
+     `%LOCALAPPDATA%\<identifier>\EBWebView` (el `identifier` de `tauri.conf.json`)
+     si ya se lanzó antes el mismo binario sin el puerto de depuración — WebView2
+     solo lee `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` la primera vez que crea ese
+     perfil. Ojo: esa carpeta es el `localStorage` real de la app (pestañas
+     abiertas, modo de diff) — borrarla se lleva por delante cualquier sesión de
+     uso real, no solo la de pruebas.
 4. Al terminar, matar los procesos **por PID verificado** (nunca por nombre):
    ```
    Get-CimInstance Win32_Process -Filter "Name='gitpad.exe'" | Select ProcessId

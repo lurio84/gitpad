@@ -1,14 +1,44 @@
-// Visor de diff unificado. No intenta ser un editor: colorea las líneas de un
-// `git diff`/`git show` tal cual las devuelve la capa Rust.
+// Visor de diff. No intenta ser un editor: colorea las líneas de un
+// `git diff`/`git show` tal cual las devuelve la capa Rust. Dos vistas sobre
+// el mismo parseo: unificada (una columna, como antes) y side-by-side
+// (dos columnas emparejadas, el modo por defecto de Bernardo en GitKraken).
 
-type LineKind = "add" | "del" | "ctx" | "hunk" | "meta";
+import { useEffect, useState } from "react";
 
-interface DiffLine {
-  kind: LineKind;
-  text: string;
+type ViewMode = "unified" | "split";
+
+const VIEW_KEY = "gitpad:diff-view";
+
+function loadViewMode(): ViewMode {
+  try {
+    const v = localStorage.getItem(VIEW_KEY);
+    return v === "unified" ? "unified" : "split";
+  } catch {
+    return "split";
+  }
 }
 
-const META_PREFIXES = [
+type BodyKind = "add" | "del" | "ctx" | "hunk";
+
+interface BodyLine {
+  kind: BodyKind;
+  text: string;
+  oldLine: number | null;
+  newLine: number | null;
+}
+
+interface DiffFile {
+  /** Cabecera: `diff --git`, `index`, `---`/`+++`, modo, rename/copy, similarity. */
+  header: string[];
+  /** "Binary files a/x and b/x differ", si aplica — sin hunks en ese caso. */
+  binaryNote: string | null;
+  /** Líneas "\ No newline at end of file" encontradas — nota aparte, no entran
+   * en el emparejado de columnas para no desincronizar el conteo. */
+  notes: string[];
+  body: BodyLine[];
+}
+
+const HEADER_PREFIXES = [
   "diff ",
   "index ",
   "--- ",
@@ -21,21 +51,115 @@ const META_PREFIXES = [
   "copy ",
   "similarity ",
   "dissimilarity ",
-  "Binary files",
-  "\\ No newline",
 ];
 
-function parse(raw: string): DiffLine[] {
-  const out: DiffLine[] = [];
-  for (const text of raw.split("\n")) {
-    let kind: LineKind;
-    if (text.startsWith("@@")) kind = "hunk";
-    else if (META_PREFIXES.some((p) => text.startsWith(p))) kind = "meta";
-    else if (text.startsWith("+")) kind = "add";
-    else if (text.startsWith("-")) kind = "del";
-    else kind = "ctx";
-    out.push({ kind, text });
+const NO_NEWLINE_PREFIX = "\\ No newline";
+const BINARY_PREFIX = "Binary files";
+
+function newFile(): DiffFile {
+  return { header: [], binaryNote: null, notes: [], body: [] };
+}
+
+const HUNK_HEADER = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/;
+
+function parse(raw: string): DiffFile[] {
+  const files: DiffFile[] = [];
+  let current: DiffFile | null = null;
+  let inHunk = false;
+  let oldLine = 0;
+  let newLine = 0;
+
+  const ensureFile = (): DiffFile => {
+    if (!current) {
+      current = newFile();
+      files.push(current);
+    }
+    return current;
+  };
+
+  // `git show`/`git diff` terminan su salida con un `\n`; `split("\n")` deja
+  // por eso un último elemento "" que no es una línea real. Sin quitarlo se
+  // cuela como línea de contexto fantasma (con el `oldLine`/`newLine` que
+  // tocara en ese momento), visible en la vista lado a lado como una fila con
+  // número de línea suelto.
+  const withoutTrailingNewline = raw.endsWith("\n") ? raw.slice(0, -1) : raw;
+  for (const text of withoutTrailingNewline.split("\n")) {
+    if (text.startsWith("diff ")) {
+      current = newFile();
+      files.push(current);
+      inHunk = false;
+      current.header.push(text);
+      continue;
+    }
+    const f = ensureFile();
+    if (text.startsWith(BINARY_PREFIX)) {
+      f.binaryNote = text;
+      inHunk = false;
+      continue;
+    }
+    if (!inHunk && HEADER_PREFIXES.some((p) => text.startsWith(p))) {
+      f.header.push(text);
+      continue;
+    }
+    const hunkMatch = HUNK_HEADER.exec(text);
+    if (hunkMatch) {
+      inHunk = true;
+      oldLine = Number(hunkMatch[1]);
+      newLine = Number(hunkMatch[2]);
+      f.body.push({ kind: "hunk", text, oldLine: null, newLine: null });
+      continue;
+    }
+    if (text.startsWith(NO_NEWLINE_PREFIX)) {
+      f.notes.push(text);
+      continue;
+    }
+    if (text.startsWith("+")) {
+      f.body.push({ kind: "add", text, oldLine: null, newLine: newLine++ });
+    } else if (text.startsWith("-")) {
+      f.body.push({ kind: "del", text, oldLine: oldLine++, newLine: null });
+    } else {
+      f.body.push({ kind: "ctx", text, oldLine: oldLine++, newLine: newLine++ });
+    }
   }
+  return files.filter(
+    (f) => f.header.length > 0 || f.binaryNote || f.body.length > 0,
+  );
+}
+
+/** Una fila de la vista lado a lado: una mitad puede quedar vacía. */
+interface PairedRow {
+  left: BodyLine | null;
+  right: BodyLine | null;
+}
+
+function pairBody(body: BodyLine[]): (PairedRow | { hunk: string })[] {
+  const out: (PairedRow | { hunk: string })[] = [];
+  let dels: BodyLine[] = [];
+  let adds: BodyLine[] = [];
+
+  const flush = () => {
+    const n = Math.max(dels.length, adds.length);
+    for (let i = 0; i < n; i++) {
+      out.push({ left: dels[i] ?? null, right: adds[i] ?? null });
+    }
+    dels = [];
+    adds = [];
+  };
+
+  for (const line of body) {
+    if (line.kind === "hunk") {
+      flush();
+      out.push({ hunk: line.text });
+    } else if (line.kind === "del") {
+      dels.push(line);
+    } else if (line.kind === "add") {
+      adds.push(line);
+    } else {
+      flush();
+      out.push({ left: line, right: line });
+    }
+  }
+  flush();
   return out;
 }
 
@@ -47,6 +171,16 @@ interface Props {
 }
 
 export function DiffView({ raw, loading, note }: Props) {
+  const [mode, setMode] = useState<ViewMode>(loadViewMode);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(VIEW_KEY, mode);
+    } catch {
+      // localStorage puede fallar (ventana privada, etc.) — no es crítico.
+    }
+  }, [mode]);
+
   if (loading) return <div className="diff-empty">Cargando diff…</div>;
   if (note) return <div className="diff-empty">{note}</div>;
   if (raw === null)
@@ -54,13 +188,119 @@ export function DiffView({ raw, loading, note }: Props) {
   if (raw.trim() === "")
     return <div className="diff-empty">Sin cambios que mostrar.</div>;
 
+  const files = parse(raw);
+
+  return (
+    <div className="diff-wrap">
+      <div className="diff-toolbar">
+        <button
+          className={mode === "split" ? "on" : ""}
+          onClick={() => setMode("split")}
+        >
+          Lado a lado
+        </button>
+        <button
+          className={mode === "unified" ? "on" : ""}
+          onClick={() => setMode("unified")}
+        >
+          Unificado
+        </button>
+      </div>
+      {mode === "unified" ? (
+        <UnifiedView files={files} />
+      ) : (
+        <SplitView files={files} />
+      )}
+    </div>
+  );
+}
+
+function FileNotes({ file }: { file: DiffFile }) {
+  return (
+    <>
+      {file.header.map((h, i) => (
+        <div key={`h${i}`} className="dl meta">
+          {h}
+        </div>
+      ))}
+      {file.binaryNote && <div className="dl meta">{file.binaryNote}</div>}
+      {file.notes.map((n, i) => (
+        <div key={`n${i}`} className="dl meta">
+          {n}
+        </div>
+      ))}
+    </>
+  );
+}
+
+function UnifiedView({ files }: { files: DiffFile[] }) {
   return (
     <pre className="diff">
-      {parse(raw).map((l, i) => (
-        <div key={i} className={`dl ${l.kind}`}>
-          {l.text === "" ? " " : l.text}
+      {files.map((f, fi) => (
+        <div key={fi}>
+          <FileNotes file={f} />
+          {f.body.map((l, i) => (
+            <div key={i} className={`dl ${l.kind}`}>
+              {l.text === "" ? " " : l.text}
+            </div>
+          ))}
         </div>
       ))}
     </pre>
+  );
+}
+
+function SplitView({ files }: { files: DiffFile[] }) {
+  return (
+    <div className="diff diff-split">
+      {files.map((f, fi) => {
+        const rows = pairBody(f.body);
+        return (
+          <div key={fi}>
+            <FileNotes file={f} />
+            {rows.map((r, i) =>
+              "hunk" in r ? (
+                <div key={i} className="split-row split-hunk">
+                  <span className="split-ln" />
+                  <span className="split-text">{r.hunk}</span>
+                  <span className="split-ln" />
+                  <span className="split-text">{r.hunk}</span>
+                </div>
+              ) : (
+                <SplitPair key={i} row={r} />
+              ),
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** `side` decide qué número de línea mostrar en una fila de contexto, que
+ * tiene tanto `oldLine` como `newLine` (aparece en ambas columnas a la vez). */
+function SplitHalf({ line, side }: { line: BodyLine | null; side: "left" | "right" }) {
+  if (!line)
+    return (
+      <>
+        <span className="split-ln" />
+        <span className="split-text empty" />
+      </>
+    );
+  const ln = side === "left" ? line.oldLine : line.newLine;
+  return (
+    <>
+      <span className="split-ln">{ln}</span>
+      <span className={`split-text ${line.kind}`}>{line.text.slice(1) || " "}</span>
+    </>
+  );
+}
+
+function SplitPair({ row }: { row: PairedRow }) {
+  return (
+    <div className="split-row">
+      <SplitHalf line={row.left} side="left" />
+      <SplitHalf line={row.right} side="right" />
+    </div>
   );
 }

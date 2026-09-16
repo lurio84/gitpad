@@ -343,11 +343,43 @@ body {
   min-width: 0;
 }
 
+.diff-wrap {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.diff-toolbar {
+  display: flex;
+  gap: 4px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-alt);
+  position: sticky;
+  top: 0;
+}
+
+.diff-toolbar button {
+  background: transparent;
+  color: var(--fg-dim);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 2px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.diff-toolbar button.on {
+  color: var(--fg);
+  border-color: var(--accent);
+}
+
 .diff {
   margin: 0;
   padding: 8px 0;
   font: 12px/1.45 ui-monospace, "Cascadia Code", Consolas, monospace;
   tab-size: 4;
+  overflow: auto;
 }
 
 .dl {
@@ -372,6 +404,48 @@ body {
 
 .dl.meta {
   color: var(--fg-dim);
+}
+
+.diff-split {
+  padding: 8px 0 0;
+}
+
+.split-row {
+  display: grid;
+  grid-template-columns: 3.5em 1fr 3.5em 1fr;
+  white-space: pre;
+}
+
+.split-ln {
+  padding: 0 6px;
+  text-align: right;
+  color: var(--fg-dim);
+  user-select: none;
+}
+
+.split-text {
+  padding: 0 8px 0 4px;
+  border-left: 1px solid var(--border);
+}
+
+.split-text.add {
+  background: #1e3a24;
+  color: #b5e8b5;
+}
+
+.split-text.del {
+  background: #3a1e1e;
+  color: #e8b5b5;
+}
+
+.split-text.empty {
+  background: var(--bg-alt);
+}
+
+.split-hunk .split-text {
+  color: var(--accent);
+  background: var(--bg-alt);
+  border-left: none;
 }
 
 .diff-empty {

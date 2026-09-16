@@ -6,6 +6,8 @@ import {
   fetchRemote,
   getBranches,
   getCommitDiff,
+  getCommitFileDiff,
+  getCommitFiles,
   getDefaultBase,
   getFileDiff,
   getLog,
@@ -31,6 +33,7 @@ import { Graph } from "./Graph";
 import type {
   Branch,
   Commit,
+  CommitFile,
   GitError,
   OpState,
   RepoInfo,
@@ -46,12 +49,13 @@ const LEGACY_REPO_KEY = "gitpad:last-repo";
 
 /** Qué se está mirando en el panel de diff de una pestaña. */
 type Selection =
-  | { t: "commit"; hash: string; isMerge?: boolean }
+  | { t: "commit"; hash: string; isMerge?: boolean; file?: string; origPath?: string }
   | { t: "file"; path: string; staged: boolean; untracked?: boolean };
 
 function sameSelection(a: Selection | null, b: Selection | null): boolean {
   if (a === null || b === null) return a === b;
-  if (a.t === "commit" && b.t === "commit") return a.hash === b.hash;
+  if (a.t === "commit" && b.t === "commit")
+    return a.hash === b.hash && a.file === b.file;
   if (a.t === "file" && b.t === "file")
     return a.path === b.path && a.staged === b.staged;
   return false;
@@ -67,6 +71,9 @@ interface Tab {
   sel: Selection | null;
   diff: string | null;
   diffLoading: boolean;
+  /** Archivos del commit seleccionado (vacío si es un merge o no hay commit). */
+  commitFiles: CommitFile[];
+  commitFilesLoading: boolean;
   commitMsg: string;
   amend: boolean;
   committing: boolean;
@@ -100,6 +107,8 @@ function emptyTab(root: string): Tab {
     sel: null,
     diff: null,
     diffLoading: false,
+    commitFiles: [],
+    commitFilesLoading: false,
     commitMsg: "",
     amend: false,
     committing: false,
@@ -278,7 +287,9 @@ function App() {
     try {
       const raw =
         sel.t === "commit"
-          ? await getCommitDiff(root, sel.hash)
+          ? sel.file
+            ? await getCommitFileDiff(root, sel.hash, sel.file, sel.origPath ?? null)
+            : await getCommitDiff(root, sel.hash)
           : await getFileDiff(root, sel.path, sel.staged);
       setTabs((ts) =>
         ts.map((t) =>
@@ -299,6 +310,42 @@ function App() {
       );
     }
   }, []);
+
+  /** Se llama al seleccionar un commit distinto (no al picar un archivo dentro
+   * del mismo commit, que reusa la lista ya cargada). */
+  const loadCommitFiles = useCallback(
+    async (root: string, hash: string, isMerge: boolean) => {
+      if (isMerge) {
+        patchTab(root, { commitFiles: [], commitFilesLoading: false });
+        return;
+      }
+      setTabs((ts) =>
+        ts.map((t) =>
+          t.root === root ? { ...t, commitFilesLoading: true } : t,
+        ),
+      );
+      try {
+        const files = await getCommitFiles(root, hash);
+        setTabs((ts) =>
+          ts.map((t) =>
+            t.root === root && t.sel?.t === "commit" && t.sel.hash === hash
+              ? { ...t, commitFiles: files, commitFilesLoading: false }
+              : t,
+          ),
+        );
+      } catch (e) {
+        const msg = isGitError(e) ? e.message : String(e);
+        setTabs((ts) =>
+          ts.map((t) =>
+            t.root === root && t.sel?.t === "commit" && t.sel.hash === hash
+              ? { ...t, commitFiles: [], commitFilesLoading: false, error: msg }
+              : t,
+          ),
+        );
+      }
+    },
+    [],
+  );
 
   const patchTab = useCallback((root: string, patch: Partial<Tab>) => {
     setTabs((ts) => ts.map((t) => (t.root === root ? { ...t, ...patch } : t)));
@@ -821,13 +868,25 @@ function App() {
                     <li
                       key={c.hash}
                       className={`commit${on ? " sel" : ""}`}
-                      onClick={() =>
+                      onClick={() => {
+                        // Reclicar el commit ya seleccionado lo deselecciona:
+                        // es la única forma de volver al panel "Cambios" (para
+                        // preparar/sacar archivos) sin cerrar la pestaña.
+                        if (on) {
+                          patchTab(active.root, {
+                            sel: null,
+                            diff: null,
+                            commitFiles: [],
+                          });
+                          return;
+                        }
                         void loadDiff(active.root, {
                           t: "commit",
                           hash: c.hash,
                           isMerge,
-                        })
-                      }
+                        });
+                        void loadCommitFiles(active.root, c.hash, isMerge);
+                      }}
                     >
                       <div className="commit-line">
                         {c.refs.map((r, i) => (
@@ -880,12 +939,60 @@ function App() {
           </section>
 
           <aside className="status">
-            <h2>Cambios</h2>
-            {active.status && active.status.entries.length === 0 && (
-              <p className="clean">Árbol de trabajo limpio</p>
-            )}
-            <ul>
-              {active.status?.entries.map((e) => {
+            {active.sel?.t === "commit" ? (
+              <>
+                <h2>Archivos del commit</h2>
+                {active.commitFilesLoading && <p className="clean">Cargando…</p>}
+                {!active.commitFilesLoading && active.sel.isMerge && (
+                  <p className="clean">
+                    Commit de fusión — sin lista propia de archivos.
+                  </p>
+                )}
+                {!active.commitFilesLoading &&
+                  !active.sel.isMerge &&
+                  active.commitFiles.length === 0 && (
+                    <p className="clean">Sin archivos.</p>
+                  )}
+                <ul>
+                  {!active.commitFilesLoading &&
+                    !active.sel.isMerge &&
+                    active.commitFiles.map((cf) => {
+                      const sel = active.sel;
+                      const on = sel?.t === "commit" && sel.file === cf.path;
+                      return (
+                        <li
+                          key={cf.path}
+                          className={`entry${on ? " sel" : ""}`}
+                          onClick={() =>
+                            sel?.t === "commit" &&
+                            void loadDiff(active.root, {
+                              t: "commit",
+                              hash: sel.hash,
+                              isMerge: sel.isMerge,
+                              file: cf.path,
+                              origPath: cf.orig_path ?? undefined,
+                            })
+                          }
+                        >
+                          <span className="xy">
+                            <span className="xc hit">{cf.status[0]}</span>
+                          </span>
+                          <span className="path">
+                            {cf.orig_path ? `${cf.orig_path} → ${cf.path}` : cf.path}
+                          </span>
+                        </li>
+                      );
+                    })}
+                </ul>
+              </>
+            ) : (
+              <>
+                <h2>Cambios</h2>
+                {active.status && active.status.entries.length === 0 && (
+                  <p className="clean">Árbol de trabajo limpio</p>
+                )}
+                <ul>
+                  {active.status?.entries.map((e) => {
                 const hasStaged = e.staged !== ".";
                 // "?" (sin seguir) no tiene diff contra el índice, pero sí se
                 // puede preparar.
@@ -967,7 +1074,9 @@ function App() {
                   </li>
                 );
               })}
-            </ul>
+                </ul>
+              </>
+            )}
 
             {active.status && active.status.entries.some((e) => e.staged !== ".") && (
               <form

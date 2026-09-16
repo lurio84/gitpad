@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import type { Branch, Commit, OpState, RepoInfo, Stash, Status } from "./types";
+import type { Branch, Commit, CommitFile, OpState, RepoInfo, Stash, Status } from "./types";
 
 export type LogFilterMode = "none" | "message" | "content";
 
@@ -44,6 +44,19 @@ export function getFileDiff(
   staged: boolean,
 ): Promise<string> {
   return invoke("get_file_diff", { path, file, staged });
+}
+
+export function getCommitFiles(path: string, hash: string): Promise<CommitFile[]> {
+  return invoke("get_commit_files", { path, hash });
+}
+
+export function getCommitFileDiff(
+  path: string,
+  hash: string,
+  file: string,
+  origPath: string | null,
+): Promise<string> {
+  return invoke("get_commit_file_diff", { path, hash, file, origPath });
 }
 
 export function stagePaths(path: string, paths: string[]): Promise<void> {

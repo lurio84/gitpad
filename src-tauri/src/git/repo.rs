@@ -52,6 +52,16 @@ pub struct Status {
     pub entries: Vec<StatusEntry>,
 }
 
+/// Un archivo tocado por un commit (`git show --name-status`).
+#[derive(Debug, Serialize)]
+pub struct CommitFile {
+    pub path: String,
+    /// Ruta original, solo en renombrados.
+    pub orig_path: Option<String>,
+    /// "A" | "M" | "D" | "R100" | ... tal cual lo da `--name-status`.
+    pub status: String,
+}
+
 #[derive(Debug, Serialize)]
 pub struct Branch {
     /// Nombre a mostrar: `"master"` para una rama local, `"origin/master"`
@@ -368,10 +378,108 @@ pub fn commit_diff(repo: &Path, hash: &str) -> GitResult<String> {
     if hash.is_empty() || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err(GitError::Parse(format!("hash de commit inválido: {hash}")));
     }
+    // `-c core.quotePath=false`: sin esto git octal-escapa las rutas no-ASCII
+    // en la cabecera del diff (`"caf\303\251.txt"` en vez de `café.txt`).
     run_git(
         repo,
-        &["show", "--format=", "--no-color", "--no-ext-diff", "-U3", hash],
+        &[
+            "-c",
+            "core.quotePath=false",
+            "show",
+            "--format=",
+            "--no-color",
+            "--no-ext-diff",
+            "-U3",
+            hash,
+        ],
     )
+}
+
+/// Lista de archivos tocados por un commit (contra su primer padre; contra el
+/// árbol vacío si es raíz, igual que `commit_diff`). Los commits de merge dan
+/// lista vacía, igual que `commit_diff` da diff vacío — mismo motivo: git no
+/// calcula un diff combinado por defecto.
+pub fn commit_files(repo: &Path, hash: &str) -> GitResult<Vec<CommitFile>> {
+    if hash.is_empty() || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(GitError::Parse(format!("hash de commit inválido: {hash}")));
+    }
+    // UTF-8 estricto, no lossy: con `-z` git no octal-escapa rutas no-ASCII
+    // (a diferencia de sin `-z`), pero decodificar mal las corrompería igual
+    // en silencio — mismo motivo que en `status()`.
+    let bytes = run_git_bytes(
+        repo,
+        &["show", "--format=", "--name-status", "-z", hash],
+    )?;
+    let out = String::from_utf8(bytes)
+        .map_err(|_| GitError::Parse("la salida de git show tiene bytes no UTF-8".into()))?;
+    let tokens: Vec<&str> = out.split('\0').filter(|t| !t.is_empty()).collect();
+
+    let mut files = Vec::new();
+    let mut i = 0;
+    while i < tokens.len() {
+        let status = tokens[i];
+        if status.starts_with('R') || status.starts_with('C') {
+            // Renombrado/copia: "<status>\0<ruta vieja>\0<ruta nueva>\0".
+            let (orig, path) = match (tokens.get(i + 1), tokens.get(i + 2)) {
+                (Some(o), Some(p)) => (*o, *p),
+                _ => {
+                    return Err(GitError::Parse(
+                        "registro de renombrado sin ruta original o nueva".into(),
+                    ))
+                }
+            };
+            files.push(CommitFile {
+                path: path.to_string(),
+                orig_path: Some(orig.to_string()),
+                status: status.to_string(),
+            });
+            i += 3;
+        } else {
+            let path = tokens.get(i + 1).ok_or_else(|| {
+                GitError::Parse("registro de name-status sin ruta".into())
+            })?;
+            files.push(CommitFile {
+                path: path.to_string(),
+                orig_path: None,
+                status: status.to_string(),
+            });
+            i += 2;
+        }
+    }
+    Ok(files)
+}
+
+/// Diff de un único archivo dentro de un commit (contra su primer padre; contra
+/// el árbol vacío si es raíz). La ruta va tras `--` por el mismo motivo que en
+/// `file_diff`. `orig_path` es la ruta vieja de un renombrado (de
+/// `CommitFile::orig_path`): sin ella, un pathspec restringido a la ruta nueva
+/// no empareja con la vieja y git enseña un archivo nuevo en vez de un
+/// renombrado — comprobado en vivo contra un commit de rename real.
+pub fn commit_file_diff(
+    repo: &Path,
+    hash: &str,
+    file: &str,
+    orig_path: Option<&str>,
+) -> GitResult<String> {
+    if hash.is_empty() || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(GitError::Parse(format!("hash de commit inválido: {hash}")));
+    }
+    let mut args = vec![
+        "-c",
+        "core.quotePath=false",
+        "show",
+        "--format=",
+        "--no-color",
+        "--no-ext-diff",
+        "-U3",
+        hash,
+        "--",
+    ];
+    if let Some(orig) = orig_path {
+        args.push(orig);
+    }
+    args.push(file);
+    run_git(repo, &args)
 }
 
 /// Diff de un archivo en el árbol de trabajo. `staged` elige entre el diff del

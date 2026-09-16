@@ -4,6 +4,24 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-16
+
+### Added
+- **FEAT-001** (primer backlog de Bernardo): revisión de un commit completa.
+  - Listado de archivos tocados por un commit (`get_commit_files`), con
+    renombrados y rutas no-ASCII correctos.
+  - Clic en un archivo del commit para ver solo su diff (`get_commit_file_diff`),
+    incluidos los renombrados (necesita la ruta vieja para que git empareje el
+    rename en vez de mostrar un archivo nuevo).
+  - Vista de diff lado a lado (por defecto, como en GitKraken) con toggle a
+    unificado, persistido entre sesiones.
+  - Reclicar el commit ya seleccionado vuelve al panel de cambios del árbol de
+    trabajo (antes quedaba inalcanzable hasta cerrar la pestaña).
+
+### Fixed
+- Rutas no-ASCII en la cabecera del diff de un commit salían octal-escapadas
+  (`caf\303\251.txt`); se añade `-c core.quotePath=false`.
+
 ## [0.2.1] - 2026-09-13
 
 ### Added

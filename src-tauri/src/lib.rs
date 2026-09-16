@@ -3,7 +3,7 @@ mod git;
 use std::path::Path;
 
 use git::error::GitResult;
-use git::repo::{Branch, Commit, LogFilter, OpState, RepoInfo, Stash, Status};
+use git::repo::{Branch, Commit, CommitFile, LogFilter, OpState, RepoInfo, Stash, Status};
 
 // `async` sobre una fn síncrona: Tauri la ejecuta en su threadpool en vez de
 // inline en el hilo del IPC, así un `git log` lento sobre un repo grande no
@@ -122,6 +122,21 @@ fn get_file_diff(path: String, file: String, staged: bool) -> GitResult<String> 
 }
 
 #[tauri::command(async)]
+fn get_commit_files(path: String, hash: String) -> GitResult<Vec<CommitFile>> {
+    git::repo::commit_files(Path::new(&path), &hash)
+}
+
+#[tauri::command(async)]
+fn get_commit_file_diff(
+    path: String,
+    hash: String,
+    file: String,
+    orig_path: Option<String>,
+) -> GitResult<String> {
+    git::repo::commit_file_diff(Path::new(&path), &hash, &file, orig_path.as_deref())
+}
+
+#[tauri::command(async)]
 fn stage_paths(path: String, paths: Vec<String>) -> GitResult<()> {
     git::repo::stage(Path::new(&path), &paths)
 }
@@ -146,6 +161,8 @@ pub fn run() {
             get_status,
             get_commit_diff,
             get_file_diff,
+            get_commit_files,
+            get_commit_file_diff,
             stage_paths,
             unstage_paths,
             commit,
