@@ -4,6 +4,33 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-16
+
+### Added
+- **FEAT-002** (segundo backlog de Bernardo): mensaje del commit en el panel
+  derecho, asunto y cuerpo separados, encima del listado de archivos.
+  `get_log` ahora trae también `%b`; solo se ampliaba el campo, sin comando
+  nuevo.
+
+## [0.3.1] - 2026-09-16
+
+### Fixed
+- **Solapamiento en la vista side-by-side** (segundo backlog de Bernardo):
+  cada fila del diff era su propio contenedor de grid, así que las columnas
+  no alineaban entre filas y el texto largo desbordaba su celda. El grid
+  sube al contenedor por archivo.
+- Esa misma vista, tras el fix de alineación, seguía obligando a scroll
+  horizontal incluso en diffs cortos: las columnas se dimensionaban al
+  contenido más largo de todo el archivo. Se cambia a `minmax(0,1fr)` +
+  `white-space: pre-wrap`, así el texto envuelve dentro del ancho del panel.
+
+### Added
+- Zoom con `Ctrl +` / `Ctrl -` (WebView2 `zoomHotkeysEnabled`).
+- Recarga automática de la lista de commits al recuperar el foco de la
+  ventana, para cuando se commitea desde otra herramienta y se vuelve a
+  gitpad. No usa el recargado completo para no perder el commit/diff
+  seleccionado.
+
 ## [0.3.0] - 2026-09-16
 
 ### Added
