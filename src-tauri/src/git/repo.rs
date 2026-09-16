@@ -28,6 +28,9 @@ pub struct Commit {
     pub subject: String,
     /// Nombres de refs que apuntan a este commit (ramas, tags, HEAD).
     pub refs: Vec<String>,
+    /// Cuerpo del mensaje (todo lo que sigue al asunto), sin saltos de línea
+    /// finales. Vacío si el commit no tiene cuerpo.
+    pub body: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -116,7 +119,7 @@ pub fn log(repo: &Path, skip: u32, count: u32, filter: &LogFilter) -> GitResult<
     }
 
     let fmt = format!(
-        "--pretty=format:%H{FS}%h{FS}%P{FS}%an{FS}%ae{FS}%aI{FS}%s{FS}%D"
+        "--pretty=format:%H{FS}%h{FS}%P{FS}%an{FS}%ae{FS}%aI{FS}%s{FS}%D{FS}%b"
     );
     let skip_arg = format!("--skip={skip}");
     let count_arg = format!("--max-count={count}");
@@ -157,9 +160,9 @@ pub fn log(repo: &Path, skip: u32, count: u32, filter: &LogFilter) -> GitResult<
             continue;
         }
         let f: Vec<&str> = record.split(FS).collect();
-        if f.len() != 8 {
+        if f.len() != 9 {
             return Err(GitError::Parse(format!(
-                "esperados 8 campos por commit, encontrados {}",
+                "esperados 9 campos por commit, encontrados {}",
                 f.len()
             )));
         }
@@ -177,6 +180,7 @@ pub fn log(repo: &Path, skip: u32, count: u32, filter: &LogFilter) -> GitResult<
             date: f[5].to_string(),
             subject: f[6].to_string(),
             refs: parse_refs(f[7]),
+            body: f[8].trim_end_matches('\n').to_string(),
         });
     }
     Ok(commits)

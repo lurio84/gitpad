@@ -481,6 +481,26 @@ body {
   padding: 0;
 }
 
+.commit-message {
+  padding-bottom: 10px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.commit-subject {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: pre-wrap;
+}
+
+.commit-body {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--fg-dim);
+  white-space: pre-wrap;
+}
+
 .entry {
   display: flex;
   gap: 8px;

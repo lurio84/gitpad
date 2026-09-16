@@ -963,6 +963,17 @@ function App() {
           <aside className="status">
             {active.sel?.t === "commit" ? (
               <>
+                {(() => {
+                  const sel = active.sel;
+                  if (sel?.t !== "commit") return null;
+                  const c = active.commits.find((cm) => cm.hash === sel.hash);
+                  return c ? (
+                    <div className="commit-message">
+                      <p className="commit-subject">{c.subject}</p>
+                      {c.body && <p className="commit-body">{c.body}</p>}
+                    </div>
+                  ) : null;
+                })()}
                 <h2>Archivos del commit</h2>
                 {active.commitFilesLoading && <p className="clean">Cargando…</p>}
                 {!active.commitFilesLoading && active.sel.isMerge && (

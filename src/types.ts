@@ -14,6 +14,7 @@ export interface Commit {
   date: string;
   subject: string;
   refs: string[];
+  body: string;
 }
 
 export type StatusKind =
