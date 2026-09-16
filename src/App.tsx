@@ -375,14 +375,24 @@ function App() {
   // No se usa `reload()` a secas porque esta limpia `error` al empezar y lo
   // volvería a poner a `null` al terminar bien, borrando el mensaje de git.
   const refreshVolatile = useCallback(async (root: string) => {
+    // Token capturado al entrar: si un `reload()` corre mientras esta llamada
+    // está en vuelo (p. ej. Bernardo pulsa "Recargar" justo tras un alt-tab),
+    // su resultado, más fresco, no debe ser pisado por este cuando termine.
+    const gen = gens.current.get(root) ?? 0;
     try {
-      const [opState, status, branches, stashes] = await Promise.all([
+      const filter = filters.current.get(root) ?? {
+        mode: "message" as LogFilterMode,
+        query: "",
+      };
+      const [opState, status, branches, stashes, log] = await Promise.all([
         getOpState(root),
         getStatus(root),
         getBranches(root),
         getStashes(root),
+        getLog(root, 0, LOG_PAGE, filter.mode, filter.query),
       ]);
-      patchTab(root, { opState, status, branches, stashes });
+      if (gens.current.get(root) !== gen) return;
+      patchTab(root, { opState, status, branches, stashes, commits: log });
     } catch {
       // Si esto también falla, se queda el mensaje de error genérico y ya.
     }
@@ -578,6 +588,18 @@ function App() {
     setActiveRoot(roots.includes(savedActive ?? "") ? savedActive : roots[0]);
     roots.forEach((r) => void reload(r, { dropOnError: true }));
   }, [reload]);
+
+  // Bernardo commitea a veces desde otra herramienta y vuelve a gitpad: sin
+  // esto veía la lista de commits desactualizada hasta pulsar "Recargar" a
+  // mano. Se usa `refreshVolatile`, no `reload`, porque `reload` resetea
+  // `sel`/`diff` y perdería el commit/diff que tuviera abierto en ese momento.
+  useEffect(() => {
+    const onFocus = () => {
+      if (activeRoot) void refreshVolatile(activeRoot);
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [activeRoot, refreshVolatile]);
 
   // Invariante: `activeRoot` siempre apunta a una pestaña existente (o null).
   useEffect(() => {

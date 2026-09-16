@@ -256,7 +256,7 @@ function SplitView({ files }: { files: DiffFile[] }) {
       {files.map((f, fi) => {
         const rows = pairBody(f.body);
         return (
-          <div key={fi}>
+          <div key={fi} className="split-file">
             <FileNotes file={f} />
             {rows.map((r, i) =>
               "hunk" in r ? (
