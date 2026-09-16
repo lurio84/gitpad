@@ -116,6 +116,58 @@ fn repo_sin_commits_da_log_vacio() {
     assert!(st.entries.is_empty());
 }
 
+/// FEAT-002: `get_log` debe traer el cuerpo del mensaje (`%b`), no solo el
+/// asunto — el panel del mensaje del commit distingue las dos partes.
+#[test]
+fn log_incluye_body_del_commit() {
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    let dir: PathBuf = std::env::temp_dir().join(format!(
+        "gitpad-logbody-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let _guard = scopeguard(&dir);
+
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .args(args)
+            .current_dir(&dir)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    };
+    if !git(&["init", "-q", "-b", "master"]) {
+        eprintln!("git no disponible, se salta el test");
+        return;
+    }
+    git(&["config", "user.email", "t@t"]);
+    git(&["config", "user.name", "t"]);
+
+    std::fs::write(dir.join("f.txt"), "uno\n").unwrap();
+    git(&["add", "-A"]);
+    git(&["commit", "-q", "-m", "asunto\n\nlinea 1 del cuerpo\nlinea 2 del cuerpo"]);
+
+    std::fs::write(dir.join("f.txt"), "dos\n").unwrap();
+    git(&["commit", "-qam", "sin cuerpo"]);
+
+    let log = super::repo::log(&dir, 0, 10, &super::repo::LogFilter::None).expect("log");
+    assert_eq!(log.len(), 2);
+    // --date-order: el más reciente primero.
+    assert_eq!(log[0].subject, "sin cuerpo");
+    assert_eq!(log[0].body, "", "un commit sin cuerpo debe dar body vacío");
+    assert_eq!(log[1].subject, "asunto");
+    assert_eq!(
+        log[1].body, "linea 1 del cuerpo\nlinea 2 del cuerpo",
+        "el body no debe llevar el salto de línea final que añade git"
+    );
+}
+
 /// `file_diff` debe devolver el diff del archivo pasando la ruta exacta tras
 /// `--`, incluso si empieza por `-` o lleva espacios (el caso que rompería si
 /// git leyera el nombre como opción).
