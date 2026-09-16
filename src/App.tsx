@@ -534,7 +534,7 @@ function App() {
   const doRebase = useCallback(
     async (root: string, onto: string) => {
       if (!onto.trim()) return;
-      if (!window.confirm(`¿Rebasar la rama activa sobre "${onto}"?`)) return;
+      if (!window.confirm(`¿Hacer rebase de la rama activa sobre "${onto}"?`)) return;
       patchTab(root, { rebasing: true, error: null });
       try {
         await rebaseOnto(root, onto);
@@ -820,7 +820,7 @@ function App() {
                 }
                 onClick={() => void doRebase(active.root, active.rebaseTarget)}
               >
-                {active.rebasing ? "…" : "Rebasar aquí"}
+                {active.rebasing ? "…" : "Rebase aquí"}
               </button>
             </div>
           </aside>
@@ -831,7 +831,7 @@ function App() {
                 {active.opState.kind === "rebase" && "Rebase en curso"}
                 {active.opState.kind === "cherry_pick" && "Cherry-pick en curso"}
                 {active.opState.kind === "merge" && "Merge en curso"}
-                {" — resuelve los archivos en conflicto en tu editor, prepáralos (＋) y luego:"}
+                {" — resuelve los archivos en conflicto en tu editor, haz stage (＋) y luego:"}
                 <button
                   disabled={active.opBusy}
                   onClick={() => void doOpContinue(active.root)}
@@ -932,7 +932,7 @@ function App() {
                 active.sel?.t === "file" && active.sel.untracked
                   ? "Archivo sin seguir — todavía no hay nada que comparar."
                   : active.sel?.t === "commit" && active.sel.isMerge
-                    ? "Commit de fusión — sin diff propio; mira los commits que fusiona."
+                    ? "Commit de merge — sin diff propio; mira los commits que mergea."
                     : undefined
               }
             />
@@ -945,7 +945,7 @@ function App() {
                 {active.commitFilesLoading && <p className="clean">Cargando…</p>}
                 {!active.commitFilesLoading && active.sel.isMerge && (
                   <p className="clean">
-                    Commit de fusión — sin lista propia de archivos.
+                    Commit de merge — sin lista propia de archivos.
                   </p>
                 )}
                 {!active.commitFilesLoading &&
@@ -1050,7 +1050,7 @@ function App() {
                     <span className="stagebtns">
                       {(hasUnstaged || untracked) && (
                         <button
-                          title="Preparar"
+                          title="Stage"
                           onClick={(ev) => {
                             ev.stopPropagation();
                             void toggleStage(active.root, [e.path], true);
@@ -1061,7 +1061,7 @@ function App() {
                       )}
                       {hasStaged && (
                         <button
-                          title="Sacar del índice"
+                          title="Unstage"
                           onClick={(ev) => {
                             ev.stopPropagation();
                             void toggleStage(active.root, [e.path], false);
@@ -1135,7 +1135,7 @@ function App() {
                       disabled={active.stashBusy || active.opState !== null}
                       onClick={() => void doStashApply(active.root, s.index, false)}
                     >
-                      Aplicar
+                      Apply
                     </button>
                     <button
                       title="Borrar este stash"

@@ -197,13 +197,13 @@ export function DiffView({ raw, loading, note }: Props) {
           className={mode === "split" ? "on" : ""}
           onClick={() => setMode("split")}
         >
-          Lado a lado
+          Side by side
         </button>
         <button
           className={mode === "unified" ? "on" : ""}
           onClick={() => setMode("unified")}
         >
-          Unificado
+          Unified
         </button>
       </div>
       {mode === "unified" ? (

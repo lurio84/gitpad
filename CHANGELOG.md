@@ -18,6 +18,11 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
   - Reclicar el commit ya seleccionado vuelve al panel de cambios del árbol de
     trabajo (antes quedaba inalcanzable hasta cerrar la pestaña).
 
+### Changed
+- Repaso de traducciones de la UI: los términos que Bernardo se va a encontrar
+  igual en `git`/GitKraken (Stage, Unstage, Rebase, Merge, Apply, side by
+  side/unified) se dejan en inglés; el resto en español.
+
 ### Fixed
 - Rutas no-ASCII en la cabecera del diff de un commit salían octal-escapadas
   (`caf\303\251.txt`); se añade `-c core.quotePath=false`.

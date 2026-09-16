@@ -137,21 +137,21 @@ check("la cabecera es de b.txt", fileHeaders[0]?.includes("b.txt") ?? false);
 const defaultMode = await evalJs(
   "document.querySelector('.diff-toolbar button.on')?.textContent",
 );
-check("modo por defecto es 'Lado a lado'", defaultMode === "Lado a lado");
+check("modo por defecto es 'Side by side'", defaultMode === "Side by side");
 
 const splitRows = await evalJs("document.querySelectorAll('.split-row').length");
 check("la vista lado a lado renderiza filas .split-row", splitRows > 0);
 
 await evalJs(`
   Array.from(document.querySelectorAll('.diff-toolbar button')).find(
-    (b) => b.textContent === 'Unificado'
+    (b) => b.textContent === 'Unified'
   ).click();
 `);
 await sleep(500);
 const unifiedActive = await evalJs(
   "document.querySelector('.diff-toolbar button.on')?.textContent",
 );
-check("toggle a 'Unificado' funciona", unifiedActive === "Unificado");
+check("toggle a 'Unified' funciona", unifiedActive === "Unified");
 
 const persisted = await evalJs("localStorage.getItem('gitpad:diff-view')");
 check("modo persistido en localStorage", persisted === "unified");
@@ -163,7 +163,7 @@ const afterReload = await evalJs(
   "document.querySelector('.diff-toolbar button.on')?.textContent ?? 'sin selección'",
 );
 console.log("modo tras recargar (sin selección activa, se espera el toolbar aun así):", afterReload);
-check("el modo sigue en 'Unificado' tras recargar", afterReload === "Unificado" || afterReload === "sin selección");
+check("el modo sigue en 'Unified' tras recargar", afterReload === "Unified" || afterReload === "sin selección");
 
 // --- Merge: no debe romper nada, debe mostrar la nota ---
 const clickedMerge = await evalJs(`
@@ -179,7 +179,7 @@ const clickedMerge = await evalJs(`
 check("clic en commit de merge", clickedMerge === "clic hecho");
 await sleep(1000);
 const mergeNote = await evalJs("document.querySelector('.status .clean')?.textContent");
-check("nota de merge visible", (mergeNote ?? "").includes("fusión"));
+check("nota de merge visible", (mergeNote ?? "").includes("merge"));
 
 const consoleErrors = await evalJs(
   "window.__gitpadConsoleErrors ?? 'sin listener (ok, no se instrumentó)'",
