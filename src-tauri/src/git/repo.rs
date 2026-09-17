@@ -14,6 +14,9 @@ pub struct RepoInfo {
     pub root: String,
     /// Nombre de la rama activa, o `None` si HEAD está detached.
     pub head: Option<String>,
+    /// Hash completo de HEAD, o `None` en un repo sin commits todavía. Es el
+    /// padre del nodo sintético //WIP que el frontend antepone al grafo.
+    pub head_hash: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -107,7 +110,17 @@ pub fn open(path: &Path) -> GitResult<RepoInfo> {
         Err(GitError::CommandFailed { code: 1, .. }) => None,
         Err(e) => return Err(e),
     };
-    Ok(RepoInfo { root, head })
+    // Mismo patrón que usa `log()` para detectar un repo sin commits todavía:
+    // `rev-parse --verify` sale con código 1 en vez de dar un hash.
+    let head_hash = match run_git(
+        Path::new(&root),
+        &["rev-parse", "--quiet", "--verify", "HEAD"],
+    ) {
+        Ok(h) => Some(h.trim().to_string()),
+        Err(GitError::CommandFailed { code: 1, .. }) => None,
+        Err(e) => return Err(e),
+    };
+    Ok(RepoInfo { root, head, head_hash })
 }
 
 pub fn log(repo: &Path, skip: u32, count: u32, filter: &LogFilter) -> GitResult<Vec<Commit>> {
@@ -520,6 +533,41 @@ pub fn unstage(repo: &Path, paths: &[String]) -> GitResult<()> {
     let mut args = vec!["reset", "--quiet", "--"];
     args.extend(paths.iter().map(String::as_str));
     run_git(repo, &args).map(|_| ())
+}
+
+/// Descarta cambios sin comprometer. **Irreversible** — la UI debe confirmar
+/// antes de llamar aquí. `untracked` elige el comando: un archivo seguido se
+/// devuelve al estado de HEAD tanto en el índice como en el árbol de trabajo
+/// (`restore --staged --worktree`); uno sin seguir no tiene un HEAD al que
+/// volver, así que se borra del disco (`clean -f -d`, con `-d` para que un
+/// directorio sin seguir también se borre, no solo archivos sueltos).
+///
+/// `orig_paths` son las rutas viejas de los renombrados incluidos en `paths`
+/// (`StatusEntry::orig_path`). **Imprescindibles**: `restore` no calcula
+/// renombrados como `diff`/`show` — pasar solo la ruta nueva de un `git mv
+/// a.txt b.txt` la restaura contra un HEAD que no la tiene (no hay `b.txt`
+/// ahí) y el archivo entero se pierde, con `a.txt` encima marcado para
+/// borrar. Comprobado en vivo. Sin efecto si `paths` no incluye ningún
+/// renombrado (mismo motivo que en `commit_file_diff`).
+pub fn discard(
+    repo: &Path,
+    paths: &[String],
+    orig_paths: &[String],
+    untracked: bool,
+) -> GitResult<()> {
+    if paths.is_empty() {
+        return Ok(());
+    }
+    if untracked {
+        let mut args = vec!["clean", "-f", "-d", "--"];
+        args.extend(paths.iter().map(String::as_str));
+        run_git(repo, &args).map(|_| ())
+    } else {
+        let mut args = vec!["restore", "--staged", "--worktree", "--"];
+        args.extend(paths.iter().map(String::as_str));
+        args.extend(orig_paths.iter().map(String::as_str));
+        run_git(repo, &args).map(|_| ())
+    }
 }
 
 /// Crea un commit con lo que haya en el índice. El mensaje va por stdin

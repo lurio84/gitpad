@@ -7,6 +7,11 @@ export const ROW_H = 68;
 const LANE_W = 16;
 const DOT_R = 4;
 
+/** Hash sintético del nodo //WIP que App.tsx antepone a la lista de commits
+ * cuando hay cambios sin comprometer (equivalente al nodo WIP de GitKraken).
+ * No es un hash real: nunca se manda a un comando git. */
+export const WIP_HASH = "__WIP__";
+
 export interface LaneRow {
   hash: string;
   lane: number;
@@ -152,15 +157,29 @@ export function Graph({ commits }: { commits: Commit[] }) {
           />
         );
       })}
-      {rows.map((r, i) => (
-        <circle
-          key={r.hash}
-          cx={cx(r.lane)}
-          cy={cy(i)}
-          r={DOT_R}
-          fill={laneColor(r.lane)}
-        />
-      ))}
+      {rows.map((r, i) =>
+        r.hash === WIP_HASH ? (
+          // Hueco, no relleno: se lee como "todavía sin comprometer" (mismo
+          // hash sintético que la fila de la lista, distinto trazo).
+          <circle
+            key={r.hash}
+            cx={cx(r.lane)}
+            cy={cy(i)}
+            r={DOT_R}
+            fill="none"
+            stroke={laneColor(r.lane)}
+            strokeWidth={2}
+          />
+        ) : (
+          <circle
+            key={r.hash}
+            cx={cx(r.lane)}
+            cy={cy(i)}
+            r={DOT_R}
+            fill={laneColor(r.lane)}
+          />
+        ),
+      )}
     </svg>
   );
 }

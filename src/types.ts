@@ -3,6 +3,8 @@
 export interface RepoInfo {
   root: string;
   head: string | null;
+  /** Hash completo de HEAD, o `null` en un repo sin commits todavía. */
+  head_hash: string | null;
 }
 
 export interface Commit {

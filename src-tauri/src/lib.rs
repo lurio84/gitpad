@@ -147,6 +147,16 @@ fn unstage_paths(path: String, paths: Vec<String>) -> GitResult<()> {
 }
 
 #[tauri::command(async)]
+fn discard_paths(
+    path: String,
+    paths: Vec<String>,
+    orig_paths: Vec<String>,
+    untracked: bool,
+) -> GitResult<()> {
+    git::repo::discard(Path::new(&path), &paths, &orig_paths, untracked)
+}
+
+#[tauri::command(async)]
 fn commit(path: String, message: String, amend: bool) -> GitResult<String> {
     git::repo::commit(Path::new(&path), &message, amend)
 }
@@ -165,6 +175,7 @@ pub fn run() {
             get_commit_file_diff,
             stage_paths,
             unstage_paths,
+            discard_paths,
             commit,
             get_branches,
             checkout_branch,

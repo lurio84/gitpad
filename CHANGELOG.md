@@ -4,6 +4,33 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-17
+
+Bernardo pidió "implementar stage/unstage, commit, stash" creyendo que v0.4.0
+era read-only — las tres ya existían desde v0.2.0. El problema real era que
+gitpad no las ponía donde su memoria muscular de GitKraken las busca. Esta
+versión no añade esas operaciones (ya estaban); las hace encontrables del
+mismo modo que GitKraken, y cierra el único hueco funcional real que sí
+faltaba (descartar cambios).
+
+### Added
+- **Nodo `//WIP` en el grafo de commits**, equivalente al de GitKraken:
+  aparece arriba del todo cuando hay cambios sin comprometer y lo abre en el
+  panel "Cambios" con un solo clic — antes había que reclicar el commit ya
+  seleccionado, un gesto que nadie adivina sin que se documente.
+- **Panel "Cambios" en dos secciones, Unstaged/Staged**, cada una con su
+  propio **"Stage all"/"Unstage all"** siempre visible (no depende de hover).
+  Los conflictos de merge/rebase se mantienen aparte, sin tocar ese flujo.
+- **Stash y Pop en la barra superior**, junto a Fetch/Pull/Push — antes solo
+  vivían al fondo de la columna derecha.
+- **Descartar cambios** (🗑 por archivo): un archivo seguido vuelve al estado
+  de HEAD (índice y árbol de trabajo a la vez); uno sin seguir se borra del
+  disco. Irreversible — pide confirmación antes de ejecutar.
+
+### Changed
+- `RepoInfo` trae ahora `head_hash` (hash completo de HEAD), necesario como
+  padre del nodo //WIP.
+
 ## [0.4.0] - 2026-09-16
 
 ### Added

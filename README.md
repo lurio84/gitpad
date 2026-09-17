@@ -29,10 +29,11 @@ Requisito: tener **git for Windows** instalado (gitpad es un frontend sobre el
 ## Qué hace
 
 Abrir repos en pestañas (varias a la vez), ver el grafo de ramas con commits
-entrelazados, revisar el diff de un commit o de un archivo, hacer stage/unstage
-y commit, ver y hacer checkout de ramas, buscar commits por mensaje o por
-contenido, fetch/pull/push, stash, cherry-pick y rebase simple — con detección
-de conflicto y un banner para continuar o abortar la operación a medio camino.
+entrelazados, revisar el diff de un commit o de un archivo, hacer stage/unstage,
+descartar cambios y commit, ver y hacer checkout de ramas, buscar commits por
+mensaje o por contenido, fetch/pull/push, stash, cherry-pick y rebase simple —
+con detección de conflicto y un banner para continuar o abortar la operación a
+medio camino.
 
 ## Fuera de alcance (v0)
 

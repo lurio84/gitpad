@@ -67,6 +67,20 @@ export function unstagePaths(path: string, paths: string[]): Promise<void> {
   return invoke("unstage_paths", { path, paths });
 }
 
+/** Irreversible: descarta cambios sin comprometer (`untracked` borra del
+ * disco en vez de restaurar desde HEAD). `origPaths` son las rutas viejas de
+ * los renombrados incluidos en `paths` (`StatusEntry.orig_path`) —
+ * imprescindibles, o el archivo se pierde en vez de restaurarse. La UI debe
+ * confirmar antes. */
+export function discardPaths(
+  path: string,
+  paths: string[],
+  origPaths: string[],
+  untracked: boolean,
+): Promise<void> {
+  return invoke("discard_paths", { path, paths, origPaths, untracked });
+}
+
 export function commit(
   path: string,
   message: string,

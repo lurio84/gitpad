@@ -64,11 +64,15 @@ async function waitFor(expr, tries = 20) {
 
 await waitFor("document.querySelector('.graph') ? true : null");
 
-// Orden de commits tal cual los pinta la app (mismo orden = mismas filas).
+// Orden de filas tal cual las pinta la app (mismo orden = mismas filas). El
+// nodo //WIP (si hay cambios sin comprometer) es una fila más sin `<code>` —
+// se guarda como `null` para no perder el índice del resto.
 const domOrder = await evalJs(
-  `Array.from(document.querySelectorAll('.commit .commit-meta code')).map(e => e.textContent)`,
+  `Array.from(document.querySelectorAll('.commit')).map(
+    (el) => el.querySelector('.commit-meta code')?.textContent ?? null,
+  )`,
 );
-console.log("orden de commits en el DOM:", domOrder);
+console.log("orden de filas en el DOM (null = //WIP):", domOrder);
 
 // Geometría del SVG: círculos (fila->carril) y líneas/paths (conexiones).
 const svgInfo = await evalJs(`
@@ -100,7 +104,9 @@ const raw = execFileSync("git", ["-C", REPO, "log", "--all", "--date-order", "--
     return [hash, parents];
   });
 const shortOf = (h) => h.slice(0, 7);
-const rowOfShort = new Map(domOrder.map((s, i) => [s, i]));
+const rowOfShort = new Map(
+  domOrder.map((s, i) => [s, i]).filter(([s]) => s !== null),
+);
 
 const ROW_H = 68, LANE_W = 16;
 const rowFromCy = (cy) => Math.round((cy - ROW_H / 2) / ROW_H);

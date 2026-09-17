@@ -108,12 +108,69 @@ fn repo_sin_commits_da_log_vacio() {
 
     let info = super::repo::open(&dir).expect("open de repo vacío");
     assert_eq!(info.head.as_deref(), Some("master"));
+    assert_eq!(info.head_hash, None, "sin commits, head_hash debe ser None");
 
     let log = super::repo::log(&dir, 0, 50, &super::repo::LogFilter::None).expect("log de repo vacío");
     assert!(log.is_empty(), "un repo sin commits debe dar log vacío");
 
     let st = super::repo::status(&dir).expect("status de repo vacío");
     assert!(st.entries.is_empty());
+}
+
+/// `head_hash` debe traer el hash completo de HEAD en un repo con commits, y
+/// seguir apuntando al mismo commit tras cambiar a HEAD detached.
+#[test]
+fn open_da_head_hash() {
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    let dir: PathBuf = std::env::temp_dir().join(format!(
+        "gitpad-headhash-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let _guard = scopeguard(&dir);
+
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .args(args)
+            .current_dir(&dir)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    };
+    if !git(&["init", "-q", "-b", "master"]) {
+        eprintln!("git no disponible, se salta el test");
+        return;
+    }
+    git(&["config", "user.email", "t@t"]);
+    git(&["config", "user.name", "t"]);
+    std::fs::write(dir.join("f.txt"), "uno\n").unwrap();
+    git(&["add", "-A"]);
+    git(&["commit", "-q", "-m", "init"]);
+
+    let head = std::process::Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(&dir)
+        .output()
+        .unwrap();
+    let hash = String::from_utf8_lossy(&head.stdout).trim().to_string();
+
+    let info = super::repo::open(&dir).expect("open");
+    assert_eq!(info.head_hash.as_deref(), Some(hash.as_str()));
+
+    git(&["checkout", "-q", "--detach", "HEAD"]);
+    let info2 = super::repo::open(&dir).expect("open detached");
+    assert_eq!(info2.head, None, "detached: head (nombre de rama) debe ser None");
+    assert_eq!(
+        info2.head_hash.as_deref(),
+        Some(hash.as_str()),
+        "detached: head_hash debe seguir apuntando al mismo commit"
+    );
 }
 
 /// FEAT-002: `get_log` debe traer el cuerpo del mensaje (`%b`), no solo el
@@ -505,6 +562,163 @@ fn stage_commit_unstage_round_trip() {
     super::repo::unstage(&dir, &["normal.txt".to_string()]).expect("unstage");
     let (_, cached) = git(&["diff", "--cached", "--name-only"]);
     assert!(cached.trim().is_empty(), "el índice debería estar vacío: {cached:?}");
+}
+
+/// `discard`: un archivo seguido vuelve exactamente al contenido de HEAD
+/// (tanto si estaba staged como si no); uno sin seguir se borra del disco.
+#[test]
+fn discard_seguido_y_sin_seguir() {
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    let dir: PathBuf = std::env::temp_dir().join(format!(
+        "gitpad-discard-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let _guard = scopeguard(&dir);
+
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .args(args)
+            .current_dir(&dir)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    };
+    if !git(&["init", "-q", "-b", "master"]) {
+        eprintln!("git no disponible, se salta el test");
+        return;
+    }
+    git(&["config", "user.email", "t@t"]);
+    git(&["config", "user.name", "t"]);
+    std::fs::write(dir.join("f.txt"), "original\n").unwrap();
+    git(&["add", "-A"]);
+    git(&["commit", "-q", "-m", "init"]);
+
+    // Modificado sin stage: discard debe devolver el contenido de HEAD.
+    // `core.autocrlf` de Windows puede convertir el salto de línea al
+    // extraer del índice, así que se normaliza antes de comparar (no es lo
+    // que este test cubre).
+    std::fs::write(dir.join("f.txt"), "modificado\n").unwrap();
+    super::repo::discard(&dir, &["f.txt".to_string()], &[], false).expect("discard unstaged");
+    assert_eq!(
+        std::fs::read_to_string(dir.join("f.txt")).unwrap().replace("\r\n", "\n"),
+        "original\n",
+        "discard debe devolver el archivo al contenido de HEAD"
+    );
+
+    // Modificado Y staged: discard debe limpiar índice y árbol de trabajo a la vez.
+    std::fs::write(dir.join("f.txt"), "modificado 2\n").unwrap();
+    super::repo::stage(&dir, &["f.txt".to_string()]).expect("stage");
+    super::repo::discard(&dir, &["f.txt".to_string()], &[], false).expect("discard staged");
+    assert_eq!(
+        std::fs::read_to_string(dir.join("f.txt")).unwrap().replace("\r\n", "\n"),
+        "original\n",
+        "discard de un archivo staged debe devolverlo también al contenido de HEAD"
+    );
+    let (_, cached) = {
+        let o = Command::new("git")
+            .args(["diff", "--cached", "--name-only"])
+            .current_dir(&dir)
+            .output()
+            .unwrap();
+        (o.status.success(), String::from_utf8_lossy(&o.stdout).into_owned())
+    };
+    assert!(cached.trim().is_empty(), "discard debe dejar el índice limpio: {cached:?}");
+
+    // Sin seguir: discard debe borrar el archivo del disco.
+    std::fs::write(dir.join("nuevo.txt"), "x\n").unwrap();
+    assert!(dir.join("nuevo.txt").exists());
+    super::repo::discard(&dir, &["nuevo.txt".to_string()], &[], true).expect("discard untracked");
+    assert!(!dir.join("nuevo.txt").exists(), "discard de un sin-seguir debe borrarlo");
+
+    // Directorio sin seguir: `-d` es imprescindible, sin él `clean -f` deja
+    // la carpeta intacta (comprobado en vivo).
+    std::fs::create_dir(dir.join("carpeta_nueva")).unwrap();
+    std::fs::write(dir.join("carpeta_nueva/x.txt"), "x\n").unwrap();
+    super::repo::discard(&dir, &["carpeta_nueva/".to_string()], &[], true)
+        .expect("discard untracked dir");
+    assert!(
+        !dir.join("carpeta_nueva").exists(),
+        "discard de una carpeta sin seguir debe borrarla entera"
+    );
+}
+
+/// Renombrado: descartar solo con la ruta nueva pierde el archivo por
+/// completo (git no calcula renombrados en `restore`, a diferencia de
+/// `diff`/`show`) — hay que pasar también la ruta vieja. Bug real
+/// reproducido en vivo antes de arreglarlo.
+#[test]
+fn discard_renombrado_necesita_ruta_original() {
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    let dir: PathBuf = std::env::temp_dir().join(format!(
+        "gitpad-discard-ren-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let _guard = scopeguard(&dir);
+
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .args(args)
+            .current_dir(&dir)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    };
+    if !git(&["init", "-q", "-b", "master"]) {
+        eprintln!("git no disponible, se salta el test");
+        return;
+    }
+    git(&["config", "user.email", "t@t"]);
+    git(&["config", "user.name", "t"]);
+    std::fs::write(dir.join("a.txt"), "contenido original\n").unwrap();
+    git(&["add", "-A"]);
+    git(&["commit", "-q", "-m", "init"]);
+    git(&["mv", "a.txt", "b.txt"]);
+
+    // Sin orig_path: el bug real — b.txt se pierde (restaurado contra un
+    // HEAD sin b.txt) y a.txt queda marcado para borrar encima.
+    super::repo::discard(&dir, &["b.txt".to_string()], &[], false)
+        .expect("discard sin orig_path (reproduce el bug)");
+    assert!(
+        !dir.join("a.txt").exists() && !dir.join("b.txt").exists(),
+        "reproduce el bug: ambos archivos deberían haber desaparecido"
+    );
+
+    // Recompone el escenario y repite con orig_path: debe recuperar a.txt tal
+    // cual estaba, índice limpio.
+    git(&["checkout", "-q", "HEAD", "--", "a.txt"]);
+    git(&["reset", "-q"]);
+    git(&["mv", "a.txt", "b.txt"]);
+    super::repo::discard(&dir, &["b.txt".to_string()], &["a.txt".to_string()], false)
+        .expect("discard con orig_path");
+    assert!(dir.join("a.txt").exists(), "a.txt debe volver a existir");
+    assert!(!dir.join("b.txt").exists(), "b.txt no debe quedar en el árbol de trabajo");
+    assert_eq!(
+        std::fs::read_to_string(dir.join("a.txt")).unwrap().replace("\r\n", "\n"),
+        "contenido original\n"
+    );
+    let (_, status_out) = {
+        let o = Command::new("git")
+            .args(["status", "--porcelain"])
+            .current_dir(&dir)
+            .output()
+            .unwrap();
+        (o.status.success(), String::from_utf8_lossy(&o.stdout).into_owned())
+    };
+    assert!(status_out.trim().is_empty(), "el árbol debe quedar limpio: {status_out:?}");
 }
 
 /// Recorre el flujo que hace la UI (status → stage de las rutas de status →

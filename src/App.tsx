@@ -3,6 +3,7 @@ import {
   checkoutBranch,
   cherryPick,
   commit as commitRepo,
+  discardPaths,
   fetchRemote,
   getBranches,
   getCommitDiff,
@@ -29,7 +30,7 @@ import {
   type LogFilterMode,
 } from "./api";
 import { DiffView } from "./Diff";
-import { Graph } from "./Graph";
+import { Graph, WIP_HASH } from "./Graph";
 import type {
   Branch,
   Commit,
@@ -131,6 +132,23 @@ function emptyTab(root: string): Tab {
 
 function basename(p: string): string {
   return p.split(/[/\\]/).filter(Boolean).pop() ?? p;
+}
+
+/** Commit sintético para el nodo //WIP (equivalente al de GitKraken): se
+ * antepone a la lista real solo para dibujar el grafo y la fila de la
+ * lista, nunca se manda a un comando git. */
+function wipCommit(parent: string): Commit {
+  return {
+    hash: WIP_HASH,
+    short_hash: "",
+    parents: [parent],
+    author_name: "",
+    author_email: "",
+    date: "",
+    subject: "//WIP",
+    refs: [],
+    body: "",
+  };
 }
 
 function isGitError(e: unknown): e is GitError {
@@ -384,7 +402,12 @@ function App() {
         mode: "message" as LogFilterMode,
         query: "",
       };
-      const [opState, status, branches, stashes, log] = await Promise.all([
+      const [info, opState, status, branches, stashes, log] = await Promise.all([
+        // Sin esto `head_hash` queda obsoleto tras un commit hecho fuera de
+        // gitpad: el nodo //WIP se dibujaría enganchado al HEAD viejo (se
+        // saltaría el commit más nuevo) justo en el camino que existe para
+        // esto — volver de un alt-tab tras commitear desde otra herramienta.
+        openRepo(root),
         getOpState(root),
         getStatus(root),
         getBranches(root),
@@ -392,7 +415,7 @@ function App() {
         getLog(root, 0, LOG_PAGE, filter.mode, filter.query),
       ]);
       if (gens.current.get(root) !== gen) return;
-      patchTab(root, { opState, status, branches, stashes, commits: log });
+      patchTab(root, { info, opState, status, branches, stashes, commits: log });
     } catch {
       // Si esto también falla, se queda el mensaje de error genérico y ya.
     }
@@ -403,6 +426,22 @@ function App() {
       try {
         if (stage) await stagePaths(root, paths);
         else await unstagePaths(root, paths);
+        await reload(root);
+      } catch (e) {
+        failTab(root, e);
+      }
+    },
+    [reload, failTab],
+  );
+
+  const doDiscard = useCallback(
+    async (root: string, paths: string[], origPaths: string[], untracked: boolean) => {
+      const msg = untracked
+        ? `¿Borrar ${paths.length === 1 ? "este archivo" : "estos archivos"} sin seguir? No se puede deshacer.`
+        : `¿Descartar los cambios de ${paths.length === 1 ? "este archivo" : "estos archivos"}? No se puede deshacer.`;
+      if (!window.confirm(msg)) return;
+      try {
+        await discardPaths(root, paths, origPaths, untracked);
         await reload(root);
       } catch (e) {
         failTab(root, e);
@@ -664,6 +703,20 @@ function App() {
     if (active) void reload(active.root);
   };
 
+  // Nodo //WIP (equivalente al de GitKraken): solo tiene sentido si hay
+  // cambios sin comprometer Y se sabe a qué commit engancharlo. Se antepone
+  // aquí, no en `Graph.tsx`, para que el mismo array alimente el SVG y la
+  // lista — así nunca pueden desalinearse entre sí.
+  const showWip = !!(
+    active?.status &&
+    active.status.entries.length > 0 &&
+    active.info?.head_hash
+  );
+  const displayCommits =
+    showWip && active
+      ? [wipCommit(active.info!.head_hash!), ...active.commits]
+      : (active?.commits ?? []);
+
   return (
     <div className="app">
       <header className="topbar">
@@ -705,6 +758,30 @@ function App() {
               disabled={active.remoting !== null}
             >
               {active.remoting === "push" ? "…" : "Push"}
+            </button>
+            <button
+              title="Guardar todos los cambios en un stash nuevo"
+              disabled={
+                active.stashBusy ||
+                active.opState !== null ||
+                !active.status ||
+                active.status.entries.length === 0
+              }
+              onClick={() => void doStashPush(active.root, "", true)}
+            >
+              {active.stashBusy ? "…" : "Stash"}
+            </button>
+            <button
+              title="Aplicar el stash más reciente y quitarlo de la lista"
+              disabled={
+                active.stashBusy || active.opState !== null || active.stashes.length === 0
+              }
+              onClick={() =>
+                active.stashes[0] &&
+                void doStashApply(active.root, active.stashes[0].index, true)
+              }
+            >
+              {active.stashBusy ? "…" : "Pop"}
             </button>
             <form
               className="search"
@@ -880,9 +957,33 @@ function App() {
               </p>
             )}
             <div className="commit-list">
-              <Graph commits={active.commits} />
+              <Graph commits={displayCommits} />
               <ol>
-                {active.commits.map((c) => {
+                {displayCommits.map((c) => {
+                  if (c.hash === WIP_HASH) {
+                    // Entrada al panel "Cambios": mismo gesto que en
+                    // GitKraken (clicar el nodo //WIP), en vez de depender de
+                    // reclicar el commit ya seleccionado.
+                    const wipOn = active.sel === null;
+                    return (
+                      <li
+                        key="wip"
+                        className={`commit wip${wipOn ? " sel" : ""}`}
+                        onClick={() =>
+                          patchTab(active.root, { sel: null, diff: null, commitFiles: [] })
+                        }
+                      >
+                        <div className="commit-line">
+                          <span className="subject">//WIP</span>
+                        </div>
+                        <div className="commit-meta">
+                          <span>
+                            {active.status?.entries.length} cambios sin comprometer
+                          </span>
+                        </div>
+                      </li>
+                    );
+                  }
                   const on =
                     active.sel?.t === "commit" && active.sel.hash === c.hash;
                   const isMerge = c.parents.length > 1;
@@ -892,8 +993,8 @@ function App() {
                       className={`commit${on ? " sel" : ""}`}
                       onClick={() => {
                         // Reclicar el commit ya seleccionado lo deselecciona:
-                        // es la única forma de volver al panel "Cambios" (para
-                        // preparar/sacar archivos) sin cerrar la pestaña.
+                        // vuelve al panel "Cambios" (lo mismo que clicar el
+                        // nodo //WIP, cuando lo hay).
                         if (on) {
                           patchTab(active.root, {
                             sel: null,
@@ -1021,93 +1122,214 @@ function App() {
             ) : (
               <>
                 <h2>Cambios</h2>
-                {active.status && active.status.entries.length === 0 && (
-                  <p className="clean">Árbol de trabajo limpio</p>
-                )}
-                <ul>
-                  {active.status?.entries.map((e) => {
-                const hasStaged = e.staged !== ".";
-                // "?" (sin seguir) no tiene diff contra el índice, pero sí se
-                // puede preparar.
-                const untracked = e.unstaged === "?";
-                const hasUnstaged = e.unstaged !== "." && !untracked;
-                const rowStaged = !hasUnstaged && hasStaged;
-                const selOn = (s: boolean) =>
-                  active.sel?.t === "file" &&
-                  active.sel.path === e.path &&
-                  active.sel.staged === s;
-                const pick = (s: boolean) =>
-                  void loadDiff(active.root, {
-                    t: "file",
-                    path: e.path,
-                    staged: s,
-                    untracked,
-                  });
-                return (
-                  <li
-                    key={e.path}
-                    className={`entry ${e.kind}${
-                      selOn(true) || selOn(false) ? " sel" : ""
-                    }`}
-                    onClick={() => pick(rowStaged)}
-                  >
-                    <span className="xy">
-                      <span
-                        className={`xc${hasStaged ? " hit" : ""}${
-                          selOn(true) ? " on" : ""
-                        }`}
-                        onClick={(ev) => {
-                          if (!hasStaged) return;
-                          ev.stopPropagation();
-                          pick(true);
-                        }}
-                      >
-                        {e.staged}
-                      </span>
-                      <span
-                        className={`xc${hasUnstaged ? " hit" : ""}${
-                          selOn(false) ? " on" : ""
-                        }`}
-                        onClick={(ev) => {
-                          if (!hasUnstaged) return;
-                          ev.stopPropagation();
-                          pick(false);
-                        }}
-                      >
-                        {e.unstaged}
-                      </span>
-                    </span>
-                    <span className="path">
-                      {e.orig_path ? `${e.orig_path} → ${e.path}` : e.path}
-                    </span>
-                    <span className="stagebtns">
-                      {(hasUnstaged || untracked) && (
-                        <button
-                          title="Stage"
-                          onClick={(ev) => {
-                            ev.stopPropagation();
-                            void toggleStage(active.root, [e.path], true);
-                          }}
-                        >
-                          ＋
-                        </button>
+                {(() => {
+                  const allEntries = active.status?.entries ?? [];
+                  // Conflictos aparte: `＋` los marca resueltos, no "stagea"
+                  // en el sentido normal — no entran en Stage all/Unstage
+                  // all ni en las secciones Unstaged/Staged de abajo, para no
+                  // tocar el flujo ya verificado del banner de conflicto.
+                  const unmergedEntries = allEntries.filter((e) => e.kind === "unmerged");
+                  const otherEntries = allEntries.filter((e) => e.kind !== "unmerged");
+                  const unstagedEntries = otherEntries.filter((e) => e.unstaged !== ".");
+                  const stagedEntries = otherEntries.filter((e) => e.staged !== ".");
+
+                  const selOn = (path: string, s: boolean) =>
+                    active.sel?.t === "file" &&
+                    active.sel.path === path &&
+                    active.sel.staged === s;
+
+                  if (allEntries.length === 0) {
+                    return <p className="clean">Árbol de trabajo limpio</p>;
+                  }
+
+                  return (
+                    <>
+                      {unmergedEntries.length > 0 && (
+                        <>
+                          <div className="section-header">
+                            <h3>Conflictos</h3>
+                          </div>
+                          <ul>
+                            {unmergedEntries.map((e) => (
+                              <li
+                                key={e.path}
+                                className={`entry ${e.kind}${
+                                  selOn(e.path, true) || selOn(e.path, false) ? " sel" : ""
+                                }`}
+                                onClick={() =>
+                                  void loadDiff(active.root, {
+                                    t: "file",
+                                    path: e.path,
+                                    staged: false,
+                                  })
+                                }
+                              >
+                                <span className="xy">
+                                  <span className="xc hit">{e.staged}</span>
+                                  <span className="xc hit">{e.unstaged}</span>
+                                </span>
+                                <span className="path">{e.path}</span>
+                                <span className="stagebtns">
+                                  <button
+                                    title="Marcar como resuelto"
+                                    onClick={(ev) => {
+                                      ev.stopPropagation();
+                                      void toggleStage(active.root, [e.path], true);
+                                    }}
+                                  >
+                                    ＋
+                                  </button>
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        </>
                       )}
-                      {hasStaged && (
-                        <button
-                          title="Unstage"
-                          onClick={(ev) => {
-                            ev.stopPropagation();
-                            void toggleStage(active.root, [e.path], false);
-                          }}
-                        >
-                          －
-                        </button>
-                      )}
-                    </span>
-                  </li>
-                );
-              })}
-                </ul>
+
+                      <div className="section-header">
+                        <h3>Unstaged</h3>
+                        {unstagedEntries.length > 0 && (
+                          <button
+                            className="link"
+                            onClick={() =>
+                              void toggleStage(
+                                active.root,
+                                unstagedEntries.map((e) => e.path),
+                                true,
+                              )
+                            }
+                          >
+                            Stage all
+                          </button>
+                        )}
+                      </div>
+                      <ul>
+                        {unstagedEntries.length === 0 && (
+                          <li className="clean-row">—</li>
+                        )}
+                        {unstagedEntries.map((e) => {
+                          const untracked = e.unstaged === "?";
+                          return (
+                            <li
+                              key={`u-${e.path}`}
+                              className={`entry ${e.kind}${selOn(e.path, false) ? " sel" : ""}`}
+                              onClick={() =>
+                                void loadDiff(active.root, {
+                                  t: "file",
+                                  path: e.path,
+                                  staged: false,
+                                  untracked,
+                                })
+                              }
+                            >
+                              <span className="xy">
+                                <span className="xc hit">{e.unstaged}</span>
+                              </span>
+                              <span className="path">
+                                {e.orig_path ? `${e.orig_path} → ${e.path}` : e.path}
+                              </span>
+                              <span className="stagebtns">
+                                <button
+                                  title="Stage"
+                                  onClick={(ev) => {
+                                    ev.stopPropagation();
+                                    void toggleStage(active.root, [e.path], true);
+                                  }}
+                                >
+                                  ＋
+                                </button>
+                                <button
+                                  title={
+                                    untracked
+                                      ? "Borrar archivo sin seguir"
+                                      : "Descartar cambios"
+                                  }
+                                  onClick={(ev) => {
+                                    ev.stopPropagation();
+                                    void doDiscard(
+                                      active.root,
+                                      [e.path],
+                                      e.orig_path ? [e.orig_path] : [],
+                                      untracked,
+                                    );
+                                  }}
+                                >
+                                  🗑
+                                </button>
+                              </span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+
+                      <div className="section-header">
+                        <h3>Staged</h3>
+                        {stagedEntries.length > 0 && (
+                          <button
+                            className="link"
+                            onClick={() =>
+                              void toggleStage(
+                                active.root,
+                                stagedEntries.map((e) => e.path),
+                                false,
+                              )
+                            }
+                          >
+                            Unstage all
+                          </button>
+                        )}
+                      </div>
+                      <ul>
+                        {stagedEntries.length === 0 && <li className="clean-row">—</li>}
+                        {stagedEntries.map((e) => (
+                          <li
+                            key={`s-${e.path}`}
+                            className={`entry ${e.kind}${selOn(e.path, true) ? " sel" : ""}`}
+                            onClick={() =>
+                              void loadDiff(active.root, {
+                                t: "file",
+                                path: e.path,
+                                staged: true,
+                              })
+                            }
+                          >
+                            <span className="xy">
+                              <span className="xc hit">{e.staged}</span>
+                            </span>
+                            <span className="path">
+                              {e.orig_path ? `${e.orig_path} → ${e.path}` : e.path}
+                            </span>
+                            <span className="stagebtns">
+                              <button
+                                title="Unstage"
+                                onClick={(ev) => {
+                                  ev.stopPropagation();
+                                  void toggleStage(active.root, [e.path], false);
+                                }}
+                              >
+                                －
+                              </button>
+                              <button
+                                title="Descartar cambios"
+                                onClick={(ev) => {
+                                  ev.stopPropagation();
+                                  void doDiscard(
+                                    active.root,
+                                    [e.path],
+                                    e.orig_path ? [e.orig_path] : [],
+                                    false,
+                                  );
+                                }}
+                              >
+                                🗑
+                              </button>
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  );
+                })()}
               </>
             )}
 

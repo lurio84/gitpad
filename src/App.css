@@ -299,6 +299,11 @@ body {
   background: #094771;
 }
 
+.commit.wip .subject {
+  color: var(--fg-dim);
+  font-style: italic;
+}
+
 .commit-line {
   display: flex;
   align-items: baseline;
@@ -475,6 +480,31 @@ body {
   letter-spacing: 0.05em;
   color: var(--fg-dim);
   margin: 0 0 8px;
+}
+
+.section-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 10px 0 4px;
+}
+
+.section-header h3 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-dim);
+  margin: 0;
+}
+
+.section-header .link {
+  font-size: 11px;
+}
+
+.clean-row {
+  padding: 3px 4px;
+  color: var(--fg-dim);
 }
 
 .status ul {
