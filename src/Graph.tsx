@@ -1,9 +1,10 @@
 import type { Commit } from "./types";
 
-/** Alto de fila en píxeles. Tiene que coincidir con el alto real de `.commit`
- * en App.css (`min-height`) para que el SVG quede alineado con la lista —
- * por eso `.commit` fija esa altura en vez de depender del contenido. */
-export const ROW_H = 68;
+/** Alto de fila en píxeles. Fuente única: App.tsx lo publica como `--row-h` en
+ * `.app` y `.commit` (App.css) lo usa como `height` fijo, así el SVG queda
+ * alineado con la lista sin medir el DOM. Si una fila desborda, el CSS la
+ * recorta en silencio: `scripts/cdp/cdp-row-height.mjs` lo detecta. */
+export const ROW_H = 56;
 const LANE_W = 16;
 const DOT_R = 4;
 
@@ -85,17 +86,10 @@ function buildEdges(commits: Commit[], rows: LaneRow[]): Edge[] {
   return edges;
 }
 
-const COLORS = [
-  "#4a9eff",
-  "#e5c07b",
-  "#98c379",
-  "#c678dd",
-  "#56b6c2",
-  "#e06c75",
-  "#61afef",
-  "#d19a66",
-];
-const laneColor = (lane: number) => COLORS[lane % COLORS.length];
+/** Los ocho carriles viven en App.css (`--lane-0` … `--lane-7`): son también la
+ * fuente del acento de la interfaz, así que el color se pide por variable. */
+const LANES = 8;
+const laneColor = (lane: number) => `var(--lane-${lane % LANES})`;
 
 function cy(row: number) {
   return row * ROW_H + ROW_H / 2;
@@ -131,7 +125,7 @@ export function Graph({ commits }: { commits: Commit[] }) {
               y1={y1}
               x2={x1}
               y2={y1 + ROW_H / 2}
-              stroke={laneColor(e.fromLane)}
+              style={{ stroke: laneColor(e.fromLane) }}
               strokeWidth={2}
               strokeDasharray="2 3"
             />
@@ -142,7 +136,15 @@ export function Graph({ commits }: { commits: Commit[] }) {
         const color = laneColor(e.fromLane === e.toLane ? e.fromLane : e.toLane);
         if (x1 === x2) {
           return (
-            <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth={2} />
+            <line
+              key={i}
+              x1={x1}
+              y1={y1}
+              x2={x2}
+              y2={y2}
+              style={{ stroke: color }}
+              strokeWidth={2}
+            />
           );
         }
         // Fusión o bifurcación: curva en S de un carril a otro.
@@ -152,7 +154,7 @@ export function Graph({ commits }: { commits: Commit[] }) {
             key={i}
             d={`M ${x1} ${y1} C ${x1} ${ymid}, ${x2} ${ymid}, ${x2} ${y2}`}
             fill="none"
-            stroke={color}
+            style={{ stroke: color }}
             strokeWidth={2}
           />
         );
@@ -167,7 +169,7 @@ export function Graph({ commits }: { commits: Commit[] }) {
             cy={cy(i)}
             r={DOT_R}
             fill="none"
-            stroke={laneColor(r.lane)}
+            style={{ stroke: laneColor(r.lane) }}
             strokeWidth={2}
           />
         ) : (
@@ -176,7 +178,7 @@ export function Graph({ commits }: { commits: Commit[] }) {
             cx={cx(r.lane)}
             cy={cy(i)}
             r={DOT_R}
-            fill={laneColor(r.lane)}
+            style={{ fill: laneColor(r.lane) }}
           />
         ),
       )}

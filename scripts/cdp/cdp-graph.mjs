@@ -74,6 +74,12 @@ const domOrder = await evalJs(
 );
 console.log("orden de filas en el DOM (null = //WIP):", domOrder);
 
+// ROW_H sale de --row-h (publicada por App.tsx desde Graph.tsx): una sola
+// fuente, no se duplica aquí.
+const ROW_H = await evalJs(
+  "parseFloat(getComputedStyle(document.querySelector('.app')).getPropertyValue('--row-h'))",
+);
+
 // Geometría del SVG: círculos (fila->carril) y líneas/paths (conexiones).
 const svgInfo = await evalJs(`
   (() => {
@@ -108,7 +114,7 @@ const rowOfShort = new Map(
   domOrder.map((s, i) => [s, i]).filter(([s]) => s !== null),
 );
 
-const ROW_H = 68, LANE_W = 16;
+const LANE_W = 16;
 const rowFromCy = (cy) => Math.round((cy - ROW_H / 2) / ROW_H);
 const laneFromCx = (cx) => Math.round((cx - LANE_W / 2) / LANE_W);
 

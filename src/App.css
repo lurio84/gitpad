@@ -1,12 +1,56 @@
 :root {
-  --bg: #1e1e1e;
-  --bg-alt: #252526;
-  --border: #333;
-  --fg: #d4d4d4;
-  --fg-dim: #888;
-  --accent: #4a9eff;
-  --ref: #2d4a2d;
+  /* Superficie: gris-tinta frío en tres capas. --bg-0 es el contenido (lista de
+     commits, diff), --bg-1 el chrome (topbar, pestañas, paneles laterales) y
+     --bg-2 los controles. */
+  --bg-0: #12161b;
+  --bg-1: #181d24;
+  --bg-2: #212832;
+  --bg-hover: #1d242d;
+  --line: #2b333e;
+  --line-soft: #1f262e;
+  --ink: #e2e8ef;
+  --ink-dim: #9aa6b4;
+
+  /* Carriles del grafo: ocho tonos de claridad parecida para que ninguno grite.
+     El acento de la interfaz ES el primer carril — un único sistema de color. */
+  --lane-0: #63b0f5;
+  --lane-1: #e8a13f;
+  --lane-2: #6dc48a;
+  --lane-3: #b98cf0;
+  --lane-4: #4cc0c4;
+  --lane-5: #ee7f87;
+  --lane-6: #c2b45c;
+  --lane-7: #e07fb8;
+
+  --accent: var(--lane-0);
+  --ok: var(--lane-2);
+  --warn: var(--lane-1);
+  --danger: var(--lane-5);
+
+  --sel-bg: #16354f;
+  --control-hover: #2a3340;
+  --control-hover-line: #3a4553;
+  --control-active: #1b222b;
+
+  --add-bg: #17271d;
+  --add-fg: #8fd39d;
+  --del-bg: #2c191c;
+  --del-fg: #f0959c;
+
+  --font-ui: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Cascadia Mono", "Cascadia Code", Consolas, monospace;
+  /* Escala: meta / interfaz / título. Pesos: 400 y 600 (Segoe UI Variable no
+     distingue un 500 útil entre ambos). */
+  --fs-meta: 11px;
+  --fs-ui: 12.5px;
+  --fs-title: 15px;
+  /* Código (diff): un punto por debajo de la interfaz — con Cascadia a 12,5 px
+     el panel central, que es el más estrecho, parte los hunks en tres líneas. */
+  --fs-code: 12px;
+
   color-scheme: dark;
+  scrollbar-width: thin;
+  scrollbar-color: #37414e transparent;
 }
 
 * {
@@ -21,9 +65,54 @@ body,
 }
 
 body {
-  background: var(--bg);
-  color: var(--fg);
-  font: 13px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--bg-0);
+  color: var(--ink);
+  font: 400 var(--fs-ui) / 1.5 var(--font-ui);
+}
+
+/* Controles: un único sitio para reposo, hover, active, foco y deshabilitado.
+   `:where` deja la especificidad en cero, así `.link`, `.tab-close` y las
+   variantes de más abajo pueden sobrescribir sin pelear con estas reglas. */
+:where(button) {
+  font: inherit;
+  color: var(--ink);
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+
+:where(button:hover:not(:disabled)) {
+  background: var(--control-hover);
+  border-color: var(--control-hover-line);
+}
+
+:where(button:active:not(:disabled)) {
+  background: var(--control-active);
+}
+
+:where(button:disabled, select:disabled, input:disabled) {
+  opacity: 0.45;
+  cursor: default;
+}
+
+:where(input[type="text"], input:not([type]), select, textarea) {
+  font: inherit;
+  color: var(--ink);
+  background: var(--bg-0);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 4px 7px;
+}
+
+:where(input[type="text"], input:not([type]), select, textarea):hover:not(:disabled) {
+  border-color: var(--control-hover-line);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .app {
@@ -36,28 +125,10 @@ body {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
   padding: 8px 12px;
-  background: var(--bg-alt);
-  border-bottom: 1px solid var(--border);
-}
-
-.topbar button {
-  background: #3a3a3a;
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 4px 10px;
-  cursor: pointer;
-}
-
-.topbar button:hover:not(:disabled) {
-  background: #454545;
-}
-
-.topbar button:disabled {
-  opacity: 0.5;
-  cursor: default;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--line);
 }
 
 .repo-name {
@@ -66,8 +137,8 @@ body {
 
 .tabs {
   display: flex;
-  background: var(--bg-alt);
-  border-bottom: 1px solid var(--border);
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--line);
   overflow-x: auto;
 }
 
@@ -76,20 +147,21 @@ body {
   align-items: center;
   gap: 6px;
   padding: 5px 8px 5px 12px;
-  border-right: 1px solid var(--border);
-  color: var(--fg-dim);
+  border-right: 1px solid var(--line);
+  color: var(--ink-dim);
   cursor: pointer;
   white-space: nowrap;
   max-width: 220px;
 }
 
 .tab:hover {
-  background: #2d2d2d;
+  background: var(--bg-hover);
 }
 
 .tab.active {
-  background: var(--bg);
-  color: var(--fg);
+  background: var(--bg-0);
+  color: var(--ink);
+  box-shadow: inset 0 2px 0 var(--accent);
 }
 
 .tab-name {
@@ -98,12 +170,12 @@ body {
 }
 
 .tab-spin {
-  color: var(--fg-dim);
+  color: var(--ink-dim);
 }
 
 .tab-warn {
-  color: #ffb0b0;
-  font-weight: 700;
+  color: var(--danger);
+  font-weight: 600;
 }
 
 .tab-close {
@@ -114,10 +186,11 @@ body {
   line-height: 1;
   padding: 0 2px;
   cursor: pointer;
-  opacity: 0.5;
+  opacity: 0.6;
 }
 
-.tab-close:hover {
+.tab-close:hover:not(:disabled) {
+  background: none;
   opacity: 1;
 }
 
@@ -126,11 +199,11 @@ body {
 }
 
 .ab {
-  color: var(--fg-dim);
+  color: var(--ink-dim);
   /* ↑/↓ en Segoe UI salen minúsculos junto a los dígitos (a simple vista se
      leen como "13↓1" en vez de "↑3 ↓1") — más peso y tamaño los hace legibles
      sin tocar el resto de la topbar. */
-  font-weight: 700;
+  font-weight: 600;
   font-size: 14px;
   /* Sin esto, con la topbar apretada el espacio entre "↑3" y "↓1" es un punto
      de corte válido y el navegador los parte en dos líneas. */
@@ -139,9 +212,9 @@ body {
 
 .error {
   padding: 10px 12px;
-  background: #4a2020;
-  color: #ffb0b0;
-  border-bottom: 1px solid var(--border);
+  background: #3a1f24;
+  color: var(--del-fg);
+  border-bottom: 1px solid var(--line);
   white-space: pre-wrap;
 }
 
@@ -152,25 +225,42 @@ body {
   min-height: 0;
 }
 
-.branches {
-  overflow-y: auto;
-  border-right: 1px solid var(--border);
-  padding: 10px 0;
+/* Etiquetas de sección: mismo tratamiento en las cuatro. Los títulos de panel
+   (h2) van en tinta plena; las subsecciones (h3, grupos de ramas) en tinta
+   atenuada. Sin mayúsculas: la jerarquía la da el peso y el color. */
+.branches h2,
+.status h2 {
+  font-size: var(--fs-ui);
+  font-weight: 600;
+  color: var(--ink);
+  margin: 0 12px 8px;
 }
 
-.branches h2 {
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--fg-dim);
-  margin: 0 12px 8px;
+.status h2 {
+  margin: 0 0 8px;
+}
+
+.branch-group-label,
+.section-header h3 {
+  font-size: var(--fs-meta);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--ink-dim);
+}
+
+.branches {
+  overflow-y: auto;
+  background: var(--bg-1);
+  border-right: 1px solid var(--line);
+  padding: 10px 0;
 }
 
 .branch-group-label {
   padding: 4px 12px;
-  color: var(--fg-dim);
-  font-size: 11px;
-  text-transform: uppercase;
+}
+
+.rebase-box .branch-group-label {
+  padding-left: 0;
 }
 
 .branches ul {
@@ -182,7 +272,7 @@ body {
 .branch-item {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   padding: 3px 12px;
   cursor: pointer;
   white-space: nowrap;
@@ -190,7 +280,7 @@ body {
 }
 
 .branch-item:hover {
-  background: var(--bg-alt);
+  background: var(--bg-hover);
 }
 
 .branch-item .branch-name {
@@ -209,13 +299,13 @@ body {
 }
 
 .branch-item.locked {
-  color: var(--fg-dim);
+  color: var(--ink-dim);
   cursor: not-allowed;
 }
 
 .branch-item .lock {
   margin-left: auto;
-  color: var(--fg-dim);
+  color: var(--ink-dim);
 }
 
 .search {
@@ -225,15 +315,6 @@ body {
   margin-left: auto;
 }
 
-.search select,
-.search input {
-  background: #3a3a3a;
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 4px 6px;
-}
-
 .search input {
   width: 180px;
 }
@@ -241,9 +322,9 @@ body {
 .filter-info {
   margin: 0;
   padding: 8px 12px;
-  color: var(--fg-dim);
-  font-size: 12px;
-  border-bottom: 1px solid var(--border);
+  color: var(--ink-dim);
+  font-size: var(--fs-meta);
+  border-bottom: 1px solid var(--line);
 }
 
 .link {
@@ -255,9 +336,13 @@ body {
   text-decoration: underline;
 }
 
+.link:hover:not(:disabled) {
+  background: none;
+}
+
 .commits {
   overflow-y: auto;
-  border-right: 1px solid var(--border);
+  border-right: 1px solid var(--line);
 }
 
 .commit-list {
@@ -278,29 +363,30 @@ body {
 }
 
 .commit {
-  /* Debe coincidir con ROW_H en Graph.tsx: el SVG del grafo se dibuja con
-     filas de ese alto fijo para quedar alineado con esta lista. 68px medido
-     contra el repo real (scrollHeight con contenido normal, no el fixture
-     con asuntos cortos) — con menos, la línea de meta se recorta en
-     silencio. */
-  height: 68px;
+  /* --row-h sale de ROW_H (Graph.tsx), que App.tsx publica en .app: el SVG del
+     grafo se dibuja con filas de ese alto fijo para quedar alineado con esta
+     lista. Una sola fuente — no escribir aquí un número. Con contenido de más
+     el overflow recorta en silencio, por eso scripts/cdp/cdp-row-height.mjs
+     es la comprobación que hay que pasar tras tocar tipografía o padding. */
+  height: var(--row-h);
   box-sizing: border-box;
   padding: 6px 12px;
-  border-bottom: 1px solid #2a2a2a;
+  border-bottom: 1px solid var(--line-soft);
   cursor: pointer;
   overflow: hidden;
 }
 
 .commit:hover {
-  background: var(--bg-alt);
+  background: var(--bg-hover);
 }
 
 .commit.sel {
-  background: #094771;
+  background: var(--sel-bg);
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .commit.wip .subject {
-  color: var(--fg-dim);
+  color: var(--ink-dim);
   font-style: italic;
 }
 
@@ -316,35 +402,72 @@ body {
   white-space: nowrap;
 }
 
+/* Chips de refs. La diferencia entre tipos es estructural, no solo de color:
+   HEAD relleno, rama local con contorno, remota atenuada, tag con contorno
+   discontinuo. */
 .ref {
-  background: var(--ref);
-  color: #a9d9a9;
+  flex-shrink: 0;
+  max-width: 7em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border: 1px solid var(--line);
   border-radius: 3px;
   padding: 0 5px;
-  font-size: 11px;
+  font-size: var(--fs-meta);
+  line-height: 16px;
   white-space: nowrap;
+}
+
+.ref.head {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #06121d;
+  font-weight: 600;
+}
+
+.ref.local {
+  border-color: #2f5578;
+  color: var(--accent);
+}
+
+.ref.remote {
+  color: var(--ink-dim);
+}
+
+.ref.tag {
+  border-style: dashed;
+  border-color: #6b5320;
+  color: var(--warn);
 }
 
 .commit-meta {
   display: flex;
   gap: 10px;
-  color: var(--fg-dim);
-  font-size: 11px;
+  color: var(--ink-dim);
+  font-size: var(--fs-meta);
   margin-top: 2px;
+  white-space: nowrap;
+}
+
+.commit-meta > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .commit-meta code {
-  color: #c9a06a;
+  font-family: var(--font-mono);
+  color: var(--ink-dim);
 }
 
 .more {
   padding: 10px 12px;
-  color: var(--fg-dim);
+  color: var(--ink-dim);
 }
 
 .diffpane {
   overflow: auto;
-  border-right: 1px solid var(--border);
+  border-right: 1px solid var(--line);
   min-width: 0;
 }
 
@@ -358,31 +481,29 @@ body {
   display: flex;
   gap: 4px;
   padding: 6px 12px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-alt);
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-1);
   position: sticky;
   top: 0;
 }
 
 .diff-toolbar button {
   background: transparent;
-  color: var(--fg-dim);
-  border: 1px solid var(--border);
-  border-radius: 3px;
+  color: var(--ink-dim);
   padding: 2px 8px;
-  font-size: 11px;
-  cursor: pointer;
+  font-size: var(--fs-meta);
 }
 
 .diff-toolbar button.on {
-  color: var(--fg);
+  color: var(--ink);
+  background: var(--sel-bg);
   border-color: var(--accent);
 }
 
 .diff {
   margin: 0;
   padding: 8px 0;
-  font: 12px/1.45 ui-monospace, "Cascadia Code", Consolas, monospace;
+  font: 400 var(--fs-code) / 1.45 var(--font-mono);
   tab-size: 4;
   overflow: auto;
 }
@@ -393,22 +514,22 @@ body {
 }
 
 .dl.add {
-  background: #1e3a24;
-  color: #b5e8b5;
+  background: var(--add-bg);
+  color: var(--add-fg);
 }
 
 .dl.del {
-  background: #3a1e1e;
-  color: #e8b5b5;
+  background: var(--del-bg);
+  color: var(--del-fg);
 }
 
 .dl.hunk {
   color: var(--accent);
-  background: var(--bg-alt);
+  background: var(--bg-1);
 }
 
 .dl.meta {
-  color: var(--fg-dim);
+  color: var(--ink-dim);
 }
 
 .diff-split {
@@ -417,7 +538,9 @@ body {
 
 .split-file {
   display: grid;
-  grid-template-columns: 3.5em minmax(0, 1fr) 3.5em minmax(0, 1fr);
+  /* max-content en los gutters: con números de línea de 5 dígitos siguen
+     cabiendo (con un ancho fijo de 3.5em se pisaban con el texto). */
+  grid-template-columns: max-content minmax(0, 1fr) max-content minmax(0, 1fr);
 }
 
 .split-file .dl.meta {
@@ -429,57 +552,51 @@ body {
 }
 
 .split-ln {
+  min-width: 3em;
   padding: 0 6px;
   text-align: right;
-  color: var(--fg-dim);
+  color: var(--ink-dim);
   user-select: none;
   white-space: pre;
 }
 
 .split-text {
   padding: 0 8px 0 4px;
-  border-left: 1px solid var(--border);
+  border-left: 1px solid var(--line);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   min-width: 0;
 }
 
 .split-text.add {
-  background: #1e3a24;
-  color: #b5e8b5;
+  background: var(--add-bg);
+  color: var(--add-fg);
 }
 
 .split-text.del {
-  background: #3a1e1e;
-  color: #e8b5b5;
+  background: var(--del-bg);
+  color: var(--del-fg);
 }
 
 .split-text.empty {
-  background: var(--bg-alt);
+  background: var(--bg-1);
 }
 
 .split-hunk .split-text {
   color: var(--accent);
-  background: var(--bg-alt);
+  background: var(--bg-1);
   border-left: none;
 }
 
 .diff-empty {
   padding: 16px;
-  color: var(--fg-dim);
+  color: var(--ink-dim);
 }
 
 .status {
   overflow-y: auto;
   padding: 10px 12px;
-}
-
-.status h2 {
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--fg-dim);
-  margin: 0 0 8px;
+  background: var(--bg-1);
 }
 
 .section-header {
@@ -491,20 +608,16 @@ body {
 }
 
 .section-header h3 {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--fg-dim);
   margin: 0;
 }
 
 .section-header .link {
-  font-size: 11px;
+  font-size: var(--fs-meta);
 }
 
 .clean-row {
   padding: 3px 4px;
-  color: var(--fg-dim);
+  color: var(--ink-dim);
 }
 
 .status ul {
@@ -516,20 +629,21 @@ body {
 .commit-message {
   padding-bottom: 10px;
   margin-bottom: 10px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--line);
 }
 
 .commit-subject {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--fs-title);
   font-weight: 600;
+  line-height: 1.35;
   white-space: pre-wrap;
 }
 
 .commit-body {
   margin: 6px 0 0;
-  font-size: 11px;
-  color: var(--fg-dim);
+  font-size: var(--fs-meta);
+  color: var(--ink-dim);
   white-space: pre-wrap;
 }
 
@@ -542,21 +656,22 @@ body {
 }
 
 .entry:hover {
-  background: var(--bg-alt);
+  background: var(--bg-hover);
 }
 
 .entry.sel {
-  background: #094771;
+  background: var(--sel-bg);
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .entry .xy {
-  font-family: ui-monospace, monospace;
+  font-family: var(--font-mono);
   color: var(--accent);
   white-space: pre;
 }
 
 .entry .xc {
-  color: var(--fg-dim);
+  color: var(--ink-dim);
 }
 
 .entry .xc.hit {
@@ -571,7 +686,7 @@ body {
 }
 
 .entry.untracked .xy {
-  color: var(--fg-dim);
+  color: var(--ink-dim);
 }
 
 .entry .path {
@@ -581,36 +696,31 @@ body {
   flex: 1;
 }
 
+/* Siempre visibles: ocultarlos hasta el hover hizo que Bernardo creyera que la
+   app era de solo lectura. Van atenuados en reposo y a plena tinta cuando la
+   fila tiene el ratón o el foco encima. */
 .stagebtns {
   display: flex;
   gap: 2px;
-  opacity: 0;
+  opacity: 0.55;
 }
 
-.entry:hover .stagebtns {
+.entry:hover .stagebtns,
+.entry:focus-within .stagebtns {
   opacity: 1;
 }
 
 /* El ＋ para marcar un archivo como resuelto (git add) es la única acción
-   que saca a Bernardo de un conflicto — no puede depender de un hover que
-   nunca va a intentar sobre la fila en rojo del banner. */
+   que saca a Bernardo de un conflicto: en la fila roja del banner va siempre a
+   plena tinta. */
 .entry.unmerged .stagebtns {
   opacity: 1;
 }
 
 .stagebtns button {
-  background: #3a3a3a;
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  font-size: 11px;
+  font-size: var(--fs-meta);
   line-height: 1;
   padding: 1px 4px;
-  cursor: pointer;
-}
-
-.stagebtns button:hover {
-  background: #454545;
 }
 
 .commitbox {
@@ -619,89 +729,58 @@ body {
   gap: 6px;
   margin-top: 12px;
   padding-top: 10px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--line);
 }
 
 .commitbox textarea {
-  background: var(--bg);
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 6px;
-  font: inherit;
   resize: vertical;
 }
 
 .commitbox .amend {
   display: flex;
   align-items: center;
-  gap: 5px;
-  color: var(--fg-dim);
-  font-size: 12px;
+  gap: 6px;
+  color: var(--ink-dim);
+  font-size: var(--fs-meta);
 }
 
+/* Acción principal: la única con relleno de color sólido en toda la interfaz. */
 .commitbox button[type="submit"] {
-  background: #2d5a2d;
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
+  background: var(--ok);
+  border-color: var(--ok);
+  color: #08170e;
+  font-weight: 600;
   padding: 5px 10px;
-  cursor: pointer;
 }
 
 .commitbox button[type="submit"]:hover:not(:disabled) {
-  background: #367036;
+  background: #82d29b;
+  border-color: #82d29b;
 }
 
-.commitbox button[type="submit"]:disabled {
-  opacity: 0.5;
-  cursor: default;
+.commitbox button[type="submit"]:active:not(:disabled) {
+  background: #5cb079;
 }
 
 .rebase-box {
   margin-top: 10px;
   padding: 8px 12px 0;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--line);
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
-.rebase-box select,
-.rebase-box button {
-  background: #3a3a3a;
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 4px 6px;
-  cursor: pointer;
-}
-
-.rebase-box button:disabled,
-.rebase-box select:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
 .conflict-banner {
   margin: 0;
   padding: 8px 12px;
-  background: #4a3a20;
-  color: #ffd9a0;
-  border-bottom: 1px solid var(--border);
+  background: #33280f;
+  color: #f3c983;
+  border-bottom: 1px solid var(--line);
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-}
-
-.conflict-banner button {
-  background: #3a3a3a;
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 3px 8px;
-  cursor: pointer;
 }
 
 .commit-meta .cherry-btn {
@@ -714,7 +793,7 @@ body {
 .stash-box {
   margin-top: 12px;
   padding-top: 10px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--line);
 }
 
 .stash-item {
@@ -729,19 +808,14 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--fg-dim);
-  font-size: 12px;
+  color: var(--ink-dim);
+  font-size: var(--fs-meta);
 }
 
 .stash-item button,
 .stashbox button {
-  background: #3a3a3a;
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  font-size: 11px;
+  font-size: var(--fs-meta);
   padding: 2px 6px;
-  cursor: pointer;
 }
 
 .stashbox {
@@ -751,26 +825,17 @@ body {
   margin-top: 8px;
 }
 
-.stashbox input[type="text"] {
-  background: var(--bg);
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 5px 6px;
-  font: inherit;
-}
-
 .stashbox .amend {
   display: flex;
   align-items: center;
-  gap: 5px;
-  color: var(--fg-dim);
-  font-size: 12px;
+  gap: 6px;
+  color: var(--ink-dim);
+  font-size: var(--fs-meta);
 }
 
 .clean,
 .empty {
-  color: var(--fg-dim);
+  color: var(--ink-dim);
 }
 
 .empty {

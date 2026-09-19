@@ -28,6 +28,10 @@ de depuración de WebView2.
      `scrollHeight` supera el `clientHeight` (contenido recortado en silencio por la
      altura fija que necesita el grafo para alinearse). Usado para pillar la
      regresión de altura de Fase 3 (44px no bastaba, hacían falta 68px).
+   - `cdp-shots.mjs <repo> <dir-salida> <prefijo> [conflict]` — recorrido de revisión de
+     un commit (árbol de trabajo → commit → archivo side-by-side → unificado → merge) con
+     una captura por estado, para comparar antes/después de un cambio visual. Con
+     `conflict`, solo el estado del banner (repo con rebase parado por conflicto).
    - `cdp-shot.mjs <ruta-de-salida.png>` — captura de pantalla + errores de consola
      posteriores a la conexión (para pillar violaciones de CSP, 404, etc.).
    - `cdp-commit-files.mjs <ruta-a-un-repo>` — FEAT-001 (listado de archivos de un
@@ -67,6 +71,6 @@ de depuración de WebView2.
   construyen aparte con `git init`/`git worktree add`/etc. en un directorio
   temporal — no están versionados aquí porque son desechables. Ver el historial de
   commits de Fase 2/3 para los pasos exactos si hace falta reconstruir uno.
-- `ROW_H` en `cdp-graph.mjs`/`cdp-row-height.mjs` debe coincidir con la constante
-  `ROW_H` de `src/Graph.tsx` y con la `height` de `.commit` en `src/App.css` — si se
-  toca uno, tocan los tres.
+- `ROW_H` (`src/Graph.tsx`) es la única fuente del alto de fila: `App.tsx` la publica
+  como `--row-h` en `.app` y `.commit` (`App.css`) la usa como `height`. `cdp-graph.mjs`
+  la lee del DOM. Tras tocar tipografía o padding de `.commit`, pasar `cdp-row-height.mjs`.

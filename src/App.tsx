@@ -30,7 +30,7 @@ import {
   type LogFilterMode,
 } from "./api";
 import { DiffView } from "./Diff";
-import { Graph, WIP_HASH } from "./Graph";
+import { Graph, ROW_H, WIP_HASH } from "./Graph";
 import type {
   Branch,
   Commit,
@@ -44,6 +44,28 @@ import type {
 import "./App.css";
 
 const LOG_PAGE = 200;
+
+/** Tipo de una ref del log para pintar su chip. `parse_refs` (repo.rs) ya quitó
+ * los prefijos `HEAD -> ` y `tag: `, así que se deduce contrastando con la lista
+ * de ramas: lo que no es rama es un tag. */
+function refKind(name: string, branches: Branch[]): "head" | "local" | "remote" | "tag" {
+  const b = branches.find((x) => x.name === name);
+  if (!b) return "tag";
+  if (b.is_head) return "head";
+  return b.is_remote ? "remote" : "local";
+}
+
+/** "19 sep" el mismo año, "19 sep 2025" otro año. El detalle completo va en el
+ * `title`: en la columna de commits, que es estrecha, la fecha larga se partía. */
+function shortDate(iso: string): string {
+  const d = new Date(iso);
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  return d.toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+    year: sameYear ? undefined : "numeric",
+  });
+}
 const TABS_KEY = "gitpad:tabs";
 const ACTIVE_KEY = "gitpad:active";
 const LEGACY_REPO_KEY = "gitpad:last-repo";
@@ -718,7 +740,7 @@ function App() {
       : (active?.commits ?? []);
 
   return (
-    <div className="app">
+    <div className="app" style={{ "--row-h": `${ROW_H}px` } as React.CSSProperties}>
       <header className="topbar">
         <button onClick={onPick} disabled={opening}>
           {opening ? "Abriendo…" : "Abrir repo…"}
@@ -1013,7 +1035,11 @@ function App() {
                     >
                       <div className="commit-line">
                         {c.refs.map((r, i) => (
-                          <span key={`${i}-${r}`} className="ref">
+                          <span
+                            key={`${i}-${r}`}
+                            className={`ref ${refKind(r, active.branches)}`}
+                            title={r}
+                          >
                             {r}
                           </span>
                         ))}
@@ -1022,7 +1048,7 @@ function App() {
                       <div className="commit-meta">
                         <code>{c.short_hash}</code>
                         <span>{c.author_name}</span>
-                        <span>{new Date(c.date).toLocaleString()}</span>
+                        <span title={new Date(c.date).toLocaleString()}>{shortDate(c.date)}</span>
                         {!isMerge && (
                           <button
                             className="link cherry-btn"
