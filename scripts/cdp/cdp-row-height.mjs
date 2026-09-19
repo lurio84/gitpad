@@ -3,7 +3,7 @@ const REPO = process.argv[2];
 
 async function connect() {
   const list = await (await fetch(CDP_HTTP)).json();
-  const target = list.find((t) => t.url?.startsWith("http://localhost:1420"));
+  const target = list.find((t) => t.url?.startsWith("http://localhost:1420") || t.url?.includes("tauri.localhost"));
   const ws = new WebSocket(target.webSocketDebuggerUrl);
   await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
   let id = 0;

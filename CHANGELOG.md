@@ -9,6 +9,12 @@ commits. Sin publicar todavía (falta pasar el binario de producción).
 
 ### Added
 
+- **Animaciones** (CSS puro, sin dependencias, respetan `prefers-reduced-motion`):
+  el grafo se traza al abrir un repo o cambiar de pestaña (no en refrescos);
+  barra de acento que crece al seleccionar un commit, un archivo o una pestaña;
+  pulsación con rebote en Commit; pulso único del chip HEAD al cambiar de commit;
+  entrada del banner de conflicto; esqueletos de carga en el diff y la lista de
+  archivos (no aparecen hasta 150 ms) y barra de progreso bajo la barra superior.
 - **Cargar más commits**: botón al final de la lista cuando hay más de 200.
   La selección se conserva y el refresco al volver a la ventana no encoge lo
   ya cargado.
@@ -20,6 +26,16 @@ commits. Sin publicar todavía (falta pasar el binario de producción).
 
 ### Changed
 
+- Los botones en curso (Recargar, Fetch, Pull, Push, Stash…) ya no cambian su
+  etiqueta por «…»: encogían el botón unos 50 px y desplazaban a todos los de su
+  derecha en cada recarga. Ahora la etiqueta se queda y un spinner va encima.
+- Ancho mínimo de ventana 640 → 900 px: las columnas necesitan 680 y a 640 el
+  panel del diff quedaba a 0 con scroll horizontal.
+- Grafo: el nodo `//WIP` ya no muestra la línea a través del círculo, y las
+  aristas llevan el color de su rama (un nodo naranja ya no sale de una línea
+  azul).
+- Si la rama por la que se filtra desaparece (fetch con prune), se vuelve a ver
+  todas en vez de dejar la pestaña con error.
 - **Los commits de merge ya se pueden revisar**: listan sus archivos y enseñan
   el diff contra su primer padre (`-m --first-parent`). Antes daban lista y
   diff vacíos.
