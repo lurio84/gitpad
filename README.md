@@ -62,6 +62,10 @@ el panel del diff se queda sin espacio.
 desvanece, así que el script (`build-icons.mjs`) mete en el `.ico` los marcos
 16/24/32 de una variante de trazo grueso, borra las carpetas `android/` e `ios/`
 que el CLI genera sin querer y copia el `.ico` a `public/favicon.ico`.
+Toca también `src-tauri/build.rs` para que el `.exe` re-incruste el icono. Tras
+ejecutarlo, `icon.icns` sale distinto en cada pasada (el CLI no es determinista):
+restaurarlo con `git checkout -- src-tauri/icons/icon.icns` si no se ha tocado el
+SVG.
 
 Verificación E2E manual contra la app real (WebView2 no es controlable por
 Playwright): ver [`scripts/cdp/README.md`](scripts/cdp/README.md).
