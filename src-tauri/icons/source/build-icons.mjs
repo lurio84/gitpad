@@ -8,7 +8,8 @@
 //   2. borra android/ e ios/ (el CLI 2.11.4 no permite excluirlas; app de escritorio)
 //   3. marcos 16/24/32 desde gitpad-small.svg (trazo grueso, sin nodo //WIP)
 //   4. los mete en icon.ico sustituyendo los del principal
-//   5. copia icon.ico a public/favicon.ico
+//   5. toca build.rs (fuerza a re-incrustar el icono en el .exe)
+//   6. copia icon.ico a public/favicon.ico
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -69,6 +70,14 @@ try {
 } finally {
   fs.rmSync(tmp, { recursive: true, force: true });
 }
+
+// Tauri incrusta el icono del .exe (recurso de Windows) desde build.rs, y cargo
+// no lo reejecuta si solo cambian los PNG/ICO: el .exe salía con el icono
+// viejo aunque el instalador llevase el nuevo. Tocar build.rs fuerza la
+// recompilación del recurso.
+const buildRs = path.join(root, "src-tauri", "build.rs");
+const now = new Date();
+fs.utimesSync(buildRs, now, now);
 
 fs.mkdirSync(path.join(root, "public"), { recursive: true });
 fs.copyFileSync(ico, path.join(root, "public", "favicon.ico"));
