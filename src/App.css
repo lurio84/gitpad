@@ -48,6 +48,17 @@
      el panel central, que es el más estrecho, parte los hunks en tres líneas. */
   --fs-code: 12px;
 
+  /* Movimiento. Respuesta táctil / cambio de estado / entrada orquestada /
+     pulso de una sola vez. El estado base de cada regla es el estado FINAL
+     visible: lo oculto o desplazado vive solo en el `from` del keyframe. */
+  --dur-1: 90ms;
+  --dur-2: 160ms;
+  --dur-3: 320ms;
+  --dur-4: 520ms;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.25, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+
   color-scheme: dark;
   scrollbar-width: thin;
   scrollbar-color: #37414e transparent;
@@ -115,6 +126,54 @@ body {
   outline-offset: 1px;
 }
 
+/* 1 ms y no `none`: así los `animationend` se siguen disparando y ningún
+   estado se queda en su `from`. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0ms !important;
+    transition-duration: 1ms !important;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Botón con operación en curso: la etiqueta se queda (invisible) para conservar
+   el ancho; el spinner va centrado encima. */
+button.busy {
+  position: relative;
+  color: transparent;
+}
+
+button.busy:disabled {
+  opacity: 1;
+}
+
+button.busy::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 700ms linear infinite;
+}
+
+.commitbox button[type="submit"].busy::after {
+  border-color: rgba(8, 23, 14, 0.3);
+  border-top-color: #08170e;
+}
+
 .app {
   display: flex;
   flex-direction: column;
@@ -170,7 +229,12 @@ body {
 }
 
 .tab-spin {
-  color: var(--ink-dim);
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 700ms linear infinite;
 }
 
 .tab-warn {

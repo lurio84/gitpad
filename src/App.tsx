@@ -70,6 +70,11 @@ function refKind(name: string, branches: Branch[]): "head" | "local" | "remote" 
 const branchRef = (b: Branch) => (b.is_remote ? "refs/remotes/" : "refs/heads/") + b.name;
 const branchLabel = (ref: string) => ref.replace(/^refs\/(heads|remotes)\//, "");
 
+/** Clase de un botón con una operación en curso: el CSS dibuja un spinner encima
+ * y deja la etiqueta (invisible) donde está, así el botón no cambia de ancho ni
+ * desplaza a los de al lado. */
+const busyClass = (busy: boolean): string | undefined => (busy ? "busy" : undefined);
+
 /** "19 sep" el mismo año, "19 sep 2025" otro año. El detalle completo va en el
  * `title`: en la columna de commits, que es estrecha, la fecha larga se partía. */
 function shortDate(iso: string): string {
@@ -831,28 +836,36 @@ function App() {
                   {active.status.behind > 0 && ` ↓${active.status.behind}`}
                 </span>
               )}
-            <button onClick={onRefresh} disabled={active.loading}>
-              {active.loading ? "…" : "Recargar"}
+            <button
+              className={busyClass(active.loading)}
+              onClick={onRefresh}
+              disabled={active.loading}
+            >
+              Recargar
             </button>
             <button
+              className={busyClass(active.remoting === "fetch")}
               onClick={() => void doRemote(active.root, "fetch")}
               disabled={active.remoting !== null}
             >
-              {active.remoting === "fetch" ? "…" : "Fetch"}
+              Fetch
             </button>
             <button
+              className={busyClass(active.remoting === "pull")}
               onClick={() => void doRemote(active.root, "pull")}
               disabled={active.remoting !== null}
             >
-              {active.remoting === "pull" ? "…" : "Pull"}
+              Pull
             </button>
             <button
+              className={busyClass(active.remoting === "push")}
               onClick={() => void doRemote(active.root, "push")}
               disabled={active.remoting !== null}
             >
-              {active.remoting === "push" ? "…" : "Push"}
+              Push
             </button>
             <button
+              className={busyClass(active.stashBusy)}
               title="Guardar todos los cambios en un stash nuevo"
               disabled={
                 active.stashBusy ||
@@ -862,9 +875,10 @@ function App() {
               }
               onClick={() => void doStashPush(active.root, "", true)}
             >
-              {active.stashBusy ? "…" : "Stash"}
+              Stash
             </button>
             <button
+              className={busyClass(active.stashBusy)}
               title="Aplicar el stash más reciente y quitarlo de la lista"
               disabled={
                 active.stashBusy || active.opState !== null || active.stashes.length === 0
@@ -874,7 +888,7 @@ function App() {
                 void doStashApply(active.root, active.stashes[0].index, true)
               }
             >
-              {active.stashBusy ? "…" : "Pop"}
+              Pop
             </button>
             <form
               className="search"
@@ -920,7 +934,7 @@ function App() {
               title={t.root}
             >
               <span className="tab-name">{basename(t.root)}</span>
-              {t.loading && <span className="tab-spin">…</span>}
+              {t.loading && <span className="tab-spin" aria-hidden="true" />}
               {t.error && !t.loading && <span className="tab-warn">!</span>}
               <button
                 className="tab-close"
@@ -1027,12 +1041,13 @@ function App() {
                 ))}
               </select>
               <button
+                className={busyClass(active.rebasing)}
                 disabled={
                   active.rebasing || active.opState !== null || !active.rebaseTarget
                 }
                 onClick={() => void doRebase(active.root, active.rebaseTarget)}
               >
-                {active.rebasing ? "…" : "Rebase aquí"}
+                Rebase aquí
               </button>
             </div>
           </aside>
@@ -1045,16 +1060,18 @@ function App() {
                 {active.opState.kind === "merge" && "Merge en curso"}
                 {" — resuelve los archivos en conflicto en tu editor, haz stage (＋) y luego:"}
                 <button
+                  className={busyClass(active.opBusy)}
                   disabled={active.opBusy}
                   onClick={() => void doOpContinue(active.root)}
                 >
-                  {active.opBusy ? "…" : "Continuar"}
+                  Continuar
                 </button>
                 <button
+                  className={busyClass(active.opBusy)}
                   disabled={active.opBusy}
                   onClick={() => void doOpAbort(active.root)}
                 >
-                  {active.opBusy ? "…" : "Abortar"}
+                  Abortar
                 </button>
               </p>
             )}
@@ -1483,11 +1500,12 @@ function App() {
                 </label>
                 <button
                   type="submit"
+                  className={busyClass(active.committing)}
                   disabled={
                     active.committing || !active.commitMsg.trim() || active.opState !== null
                   }
                 >
-                  {active.committing ? "…" : active.amend ? "Amend" : "Commit"}
+                  {active.amend ? "Amend" : "Commit"}
                 </button>
               </form>
             )}
@@ -1543,12 +1561,13 @@ function App() {
                     Incluir archivos sin seguir
                   </label>
                   <button
+                    className={busyClass(active.stashBusy)}
                     disabled={active.stashBusy || active.opState !== null}
                     onClick={() =>
                       void doStashPush(active.root, active.stashMsg, active.stashIncludeUntracked)
                     }
                   >
-                    {active.stashBusy ? "…" : "Guardar stash"}
+                    Guardar stash
                   </button>
                 </div>
               )}
