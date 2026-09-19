@@ -50,9 +50,12 @@ de depuración de WebView2.
      alineación de columnas entre filas de un mismo archivo, ausencia de
      solapamiento entre `.split-ln`/`.split-text`, y si el panel necesita scroll
      horizontal (avisa, no falla — un commit con líneas muy largas sí lo necesita
-     legítimamente). A diferencia de los demás, el target de CDP acepta tanto
-     `localhost:1420` (dev) como `tauri.localhost` (binario de producción) sin
-     tocar el script — patrón a copiar si se retoca alguno de los otros.
+     legítimamente).
+   - Aceptan como target tanto `localhost:1420` (dev) como `tauri.localhost`
+     (binario de producción), sin tocar nada: `cdp-split-diff`, `cdp-graph`,
+     `cdp-row-height`, `cdp-log-view` y `cdp-shots`. Los demás (`cdp-e2e`,
+     `cdp-dom`, `cdp-shot`, `cdp-commit-files`) solo miran a dev; si hace falta
+     pasarlos contra el binario, copiar de ellos esa línea del `find`.
    - También sirve para verificar el **binario de producción** (`npm run tauri
      build`, sin `--no-bundle`): la URL cambia de `http://localhost:1420` a
      `http://tauri.localhost`, y hace falta borrar
@@ -71,6 +74,14 @@ de depuración de WebView2.
 
 ## Notas
 
+- **Estos scripts se ejecutan de uno en uno.** Todos se conectan a la MISMA
+  página del WebView y siembran `localStorage` antes de recargar, así que dos a
+  la vez se pisan la pestaña y dan fallos que no existen.
+- Varios mutan el fixture: `cdp-e2e` y `cdp-dom` hacen checkout de rama, y el
+  recorrido de revisión deja la pestaña donde la dejó. Si se van a comparar
+  capturas contra una tanda anterior, comprobar antes con `git -C <fixture>
+  status` que el árbol sigue en el estado en que se tomó la línea base (un
+  `//WIP` perdido cambia el panel derecho entero).
 - Los repos de fixture (con worktrees, tags/ramas homónimos, merges reales) se
   construyen aparte con `git init`/`git worktree add`/etc. en un directorio
   temporal — no están versionados aquí porque son desechables. Ver el historial de

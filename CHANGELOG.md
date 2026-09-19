@@ -23,6 +23,8 @@ commits. Sin publicar todavía (falta pasar el binario de producción).
   oculta al ver una rama que no es la activa.
 - Los chips de refs distinguen HEAD (relleno), rama local (contorno), remota
   (atenuada) y tag (contorno discontinuo).
+- El SVG del icono vuelve al repo (`src-tauri/icons/source/`): se había perdido
+  tras la v0.2.1 y no se podía regenerar. Con él, `npm run icon`.
 
 ### Changed
 
@@ -53,6 +55,13 @@ commits. Sin publicar todavía (falta pasar el binario de producción).
   la única fuente del alto de fila (`--row-h`).
 - Diff lado a lado: los números de línea de 5 dígitos ya no se pisan con el
   texto.
+- Icono rehecho sobre la paleta nueva (misma composición: placa oscura, carriles
+  azul/naranja y el nodo `//WIP` en verde). El aro del `//WIP` va relleno de
+  placa, no hueco: antes la arista se veía a través del círculo. Los marcos
+  16/24/32 del `.ico` salen de una variante de trazo más grueso
+  (`gitpad-small.svg`, sin `//WIP`), que a ese tamaño sí se lee; 48/64/256 salen
+  del principal. `npm run icon` por sí solo deshace ese reempaquetado — hay que
+  pasar `pack-ico.py` después (ver su cabecera).
 
 ## [0.5.0] - 2026-09-17
 
