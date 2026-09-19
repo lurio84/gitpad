@@ -618,6 +618,9 @@ button.busy::after {
 .commit.wip .subject {
   color: var(--ink-dim);
   font-style: italic;
+  /* La cursiva de la «P» sobresale del cuadro del texto y el overflow hidden
+     de .subject (el de los puntos suspensivos) le cortaba el trazo derecho. */
+  padding-right: 4px;
 }
 
 .commit-line {
