@@ -92,6 +92,9 @@ body {
   border-radius: 5px;
   padding: 3px 10px;
   cursor: pointer;
+  transition:
+    background-color var(--dur-1) linear,
+    border-color var(--dur-1) linear;
 }
 
 :where(button:hover:not(:disabled)) {
@@ -220,7 +223,21 @@ button.busy::after {
 .tab.active {
   background: var(--bg-0);
   color: var(--ink);
-  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+/* Barra de la pestaña activa: crece desde el centro al activarla. */
+.tab::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 2px;
+  background: var(--accent);
+  transform: scaleX(0);
+  transition: transform var(--dur-2) var(--ease-out);
+}
+
+.tab.active::before {
+  transform: scaleX(1);
 }
 
 .tab-name {
@@ -470,7 +487,32 @@ button.busy::after {
 
 .commit.sel {
   background: var(--sel-bg);
-  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* Barra de acento de la fila seleccionada: crece de arriba abajo. Es un
+   pseudo-elemento absoluto: no cuenta para el scrollHeight ni mueve el layout
+   (la altura de fila es fija por el grafo). */
+.commit,
+.entry,
+.tab {
+  position: relative;
+}
+
+.commit::before,
+.entry::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 2px;
+  background: var(--accent);
+  transform: scaleY(0);
+  transform-origin: top;
+  transition: transform var(--dur-2) var(--ease-out);
+}
+
+.commit.sel::before,
+.entry.sel::before {
+  transform: scaleY(1);
 }
 
 .commit.wip .subject {
@@ -580,6 +622,10 @@ button.busy::after {
   color: var(--ink-dim);
   padding: 2px 8px;
   font-size: var(--fs-meta);
+  transition:
+    color var(--dur-1) linear,
+    background-color var(--dur-1) linear,
+    border-color var(--dur-1) linear;
 }
 
 .diff-toolbar button:hover:not(:disabled):not(.on) {
@@ -754,7 +800,6 @@ button.busy::after {
 
 .entry.sel {
   background: var(--sel-bg);
-  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .entry .xy {
@@ -796,6 +841,7 @@ button.busy::after {
   display: flex;
   gap: 2px;
   opacity: 0.55;
+  transition: opacity var(--dur-1) linear;
 }
 
 .entry:hover .stagebtns,
@@ -853,6 +899,13 @@ button.busy::after {
 
 .commitbox button[type="submit"]:active:not(:disabled) {
   background: #5cb079;
+  transform: scale(0.97);
+}
+
+.commitbox button[type="submit"] {
+  transition:
+    background-color var(--dur-1) linear,
+    transform var(--dur-2) var(--ease-spring);
 }
 
 .rebase-box {
