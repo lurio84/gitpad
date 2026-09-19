@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <title>gitpad (small)</title>
+  <!-- Variante para 16/24/32 px: sin nodo //WIP, trazo grueso. No subir el
+       trazo de 20: la curva ambar montaria sobre el tronco. -->
+  <rect width="256" height="256" rx="40" fill="#12161b"/>
+  <g fill="none" stroke-width="20" stroke-linecap="round">
+    <path d="M 74 64 L 74 192" stroke="#63b0f5"/>
+    <path d="M 74 64 C 74 96, 182 96, 182 128" stroke="#e8a13f"/>
+  </g>
+  <circle cx="74"  cy="64"  r="28" fill="#63b0f5"/>
+  <circle cx="74"  cy="192" r="28" fill="#63b0f5"/>
+  <circle cx="182" cy="128" r="28" fill="#e8a13f"/>
+</svg>

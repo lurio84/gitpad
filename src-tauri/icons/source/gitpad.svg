@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <title>gitpad</title>
+  <rect width="256" height="256" rx="45" fill="#12161b"/>
+
+  <!-- Aristas. Orden importante: el verde va primero; si se reordena, su cap
+       translucido asomaria sobre el azul en y 113..121. -->
+  <g fill="none" stroke-width="8" stroke-linecap="round">
+    <path d="M 85 65 L 85 117"  stroke="#6dc48a" stroke-opacity="0.45"/>
+    <path d="M 85 117 L 85 190" stroke="#63b0f5"/>
+    <path d="M 85 117 C 85 146, 172 146, 172 175" stroke="#e8a13f"/>
+  </g>
+
+  <!-- Separadores color placa. No bajar r de 17.5: la curva ambar montaria
+       sobre el tronco. -->
+  <g fill="none" stroke="#12161b" stroke-width="5">
+    <circle cx="85" cy="117" r="17.5"/>
+    <circle cx="85" cy="190" r="17.5"/>
+  </g>
+
+  <circle cx="85"  cy="117" r="15" fill="#63b0f5"/>
+  <circle cx="85"  cy="190" r="15" fill="#63b0f5"/>
+  <circle cx="172" cy="175" r="15" fill="#e8a13f"/>
+
+  <!-- Nodo //WIP: relleno de placa (no "none"), como en Graph.tsx; si no, la
+       arista se veria a traves del circulo. -->
+  <circle cx="85" cy="65" r="13" fill="#12161b" stroke="#6dc48a" stroke-width="5"/>
+</svg>
