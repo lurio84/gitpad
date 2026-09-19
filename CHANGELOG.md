@@ -4,6 +4,40 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [Unreleased]
 
+Repaso visual con identidad propia y tres huecos del flujo de revisión de
+commits. Sin publicar todavía (falta pasar el binario de producción).
+
+### Added
+
+- **Cargar más commits**: botón al final de la lista cuando hay más de 200.
+  La selección se conserva y el refresco al volver a la ventana no encoge lo
+  ya cargado.
+- **Ver solo una rama**: botón ○/◉ en cada rama del panel (el clic en la rama
+  sigue siendo checkout) y chip «Viendo solo X · ver todas». El nodo `//WIP` se
+  oculta al ver una rama que no es la activa.
+- Los chips de refs distinguen HEAD (relleno), rama local (contorno), remota
+  (atenuada) y tag (contorno discontinuo).
+
+### Changed
+
+- **Los commits de merge ya se pueden revisar**: listan sus archivos y enseñan
+  el diff contra su primer padre (`-m --first-parent`). Antes daban lista y
+  diff vacíos.
+- Paleta y jerarquía nuevas: superficie en tres capas y ocho colores de carril
+  de los que deriva el acento (antes: chrome estilo VS Code con carriles
+  One Dark). Escala tipográfica de tres tamaños, sin mayúsculas en las
+  etiquetas de sección.
+- Botones y campos con estados de reposo, hover, active, foco visible y
+  deshabilitado definidos una sola vez. Stage/unstage/descartar dejan de estar
+  ocultos hasta el hover.
+- Contraste: el acento sobre la fila seleccionada pasa de 3,5:1 a 5,5:1; el
+  texto atenuado, de 4,7:1 a 7,3:1.
+- Filas de commit más compactas (68 → 56 px) y fecha corta; la fecha larga se
+  partía en la columna estrecha y se recortaba. `ROW_H` (`Graph.tsx`) es ahora
+  la única fuente del alto de fila (`--row-h`).
+- Diff lado a lado: los números de línea de 5 dígitos ya no se pisan con el
+  texto.
+
 ## [0.5.0] - 2026-09-17
 
 Bernardo pidió "implementar stage/unstage, commit, stash" creyendo que v0.4.0
