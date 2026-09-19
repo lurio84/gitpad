@@ -57,12 +57,11 @@ npm run icon           # regenera los iconos desde src-tauri/icons/source/gitpad
 La ventana no baja de 900 px de ancho: por debajo, las tres columnas no caben y
 el panel del diff se queda sin espacio.
 
-Ojo con `npm run icon`: `tauri icon` acepta una sola fuente, así que rellena
-todos los marcos del `.ico` con el icono principal y a 16 px el trazo se
-desvanece. Los marcos 16/24/32 salen de una variante de trazo grueso y hay que
-volver a meterlos con `src-tauri/icons/source/pack-ico.py` (su cabecera tiene
-los tres comandos). Si se ejecuta `npm run icon` a secas, el icono pequeño
-queda peor y no hay nada que avise.
+`npm run icon` regenera todos los iconos desde los SVG de `src-tauri/icons/source`.
+`tauri icon` acepta una sola fuente y a 16 px el trazo del icono principal se
+desvanece, así que el script (`build-icons.mjs`) mete en el `.ico` los marcos
+16/24/32 de una variante de trazo grueso, borra las carpetas `android/` e `ios/`
+que el CLI genera sin querer y copia el `.ico` a `public/favicon.ico`.
 
 Verificación E2E manual contra la app real (WebView2 no es controlable por
 Playwright): ver [`scripts/cdp/README.md`](scripts/cdp/README.md).
@@ -84,6 +83,6 @@ src-tauri/src/
   git/error.rs           GitError -> { kind, message }
   git/tests.rs           tests de parseo
 src-tauri/icons/
-  source/                SVG del icono + pack-ico.py (fuente de los .png/.ico)
+  source/                SVG del icono + build-icons.mjs (fuente de los .png/.ico)
 scripts/cdp/             scripts de verificación E2E vía Chrome DevTools Protocol
 ```

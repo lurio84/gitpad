@@ -60,8 +60,9 @@ commits. Sin publicar todavía (falta pasar el binario de producción).
   placa, no hueco: antes la arista se veía a través del círculo. Los marcos
   16/24/32 del `.ico` salen de una variante de trazo más grueso
   (`gitpad-small.svg`, sin `//WIP`), que a ese tamaño sí se lee; 48/64/256 salen
-  del principal. `npm run icon` por sí solo deshace ese reempaquetado — hay que
-  pasar `pack-ico.py` después (ver su cabecera).
+  del principal. `npm run icon` encadena todo (juego completo, variante pequeña, `.ico`,
+  `public/favicon.ico`) en `src-tauri/icons/source/build-icons.mjs`; también
+  quita el 404 de `/favicon.ico`.
 
 ## [0.5.0] - 2026-09-17
 

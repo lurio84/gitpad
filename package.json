@@ -7,7 +7,7 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "icon": "tauri icon src-tauri/icons/source/gitpad.svg",
+    "icon": "node src-tauri/icons/source/build-icons.mjs",
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
