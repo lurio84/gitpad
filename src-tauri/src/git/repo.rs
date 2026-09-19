@@ -123,7 +123,21 @@ pub fn open(path: &Path) -> GitResult<RepoInfo> {
     Ok(RepoInfo { root, head, head_hash })
 }
 
-pub fn log(repo: &Path, skip: u32, count: u32, filter: &LogFilter) -> GitResult<Vec<Commit>> {
+/// `branch`: ref completa (`refs/heads/x` o `refs/remotes/o/x`) para ver solo el
+/// historial de esa rama; `None` = todas (`--all`). Se exige el prefijo `refs/`
+/// para que un nombre nunca se lea como opción de git ni como ruta.
+pub fn log(
+    repo: &Path,
+    skip: u32,
+    count: u32,
+    filter: &LogFilter,
+    branch: Option<&str>,
+) -> GitResult<Vec<Commit>> {
+    if let Some(b) = branch {
+        if !(b.starts_with("refs/heads/") || b.starts_with("refs/remotes/")) {
+            return Err(GitError::Parse(format!("ref de rama inválida: {b}")));
+        }
+    }
     // Un repo recién iniciado (o una rama huérfana) no tiene commits en HEAD y
     // `git log` sale con código 128. Se detecta antes con `rev-parse --verify HEAD`
     // (código 1 si no hay commit) y se devuelve una lista vacía en vez de un error.
@@ -136,14 +150,15 @@ pub fn log(repo: &Path, skip: u32, count: u32, filter: &LogFilter) -> GitResult<
     );
     let skip_arg = format!("--skip={skip}");
     let count_arg = format!("--max-count={count}");
-    // `--all` (no solo la rama activa) siempre, no solo con filtro: el grafo de
-    // carriles solo tiene sentido mostrando las ramas en paralelo. `--date-order`
-    // sigue garantizando que ningún padre sale antes que sus hijos (aunque
-    // mezcle ramas), que es la única propiedad que necesita el algoritmo de
-    // carriles al procesar la lista de arriba a abajo en una sola pasada.
+    // `--all` por defecto (no solo la rama activa): el grafo de carriles solo
+    // tiene sentido mostrando las ramas en paralelo. Con `branch` se ve solo esa
+    // rama. `--date-order` sigue garantizando que ningún padre sale antes que sus
+    // hijos (aunque mezcle ramas), que es la única propiedad que necesita el
+    // algoritmo de carriles al procesar la lista de arriba a abajo en una sola
+    // pasada.
     let mut args = vec![
         "log".to_string(),
-        "--all".to_string(),
+        branch.unwrap_or("--all").to_string(),
         "--date-order".to_string(),
         "--decorate=short".to_string(),
         "-z".to_string(),

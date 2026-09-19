@@ -20,6 +20,7 @@ export function getLog(
   count: number,
   filterMode: LogFilterMode = "none",
   filterQuery = "",
+  filterBranch: string | null = null,
 ): Promise<Commit[]> {
   return invoke("get_log", {
     path,
@@ -27,6 +28,7 @@ export function getLog(
     count,
     filterMode,
     filterQuery,
+    filterBranch,
   });
 }
 

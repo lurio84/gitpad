@@ -20,6 +20,7 @@ fn get_log(
     count: u32,
     filter_mode: String,
     filter_query: String,
+    filter_branch: Option<String>,
 ) -> GitResult<Vec<Commit>> {
     let query = filter_query.trim();
     let filter = match (filter_mode.as_str(), query) {
@@ -28,7 +29,7 @@ fn get_log(
         ("content", q) => LogFilter::Content(q.to_string()),
         _ => LogFilter::None,
     };
-    git::repo::log(Path::new(&path), skip, count, &filter)
+    git::repo::log(Path::new(&path), skip, count, &filter, filter_branch.as_deref())
 }
 
 #[tauri::command(async)]

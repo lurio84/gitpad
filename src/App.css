@@ -308,6 +308,30 @@ body {
   color: var(--ink-dim);
 }
 
+/* Filtrar el log por rama: siempre visible (atenuado), aparte del checkout. */
+.branch-item .branch-filter {
+  margin-left: auto;
+  padding: 0 2px;
+  font-size: var(--fs-meta);
+  color: var(--ink-dim);
+  text-decoration: none;
+  opacity: 0.55;
+}
+
+.branch-item:hover .branch-filter,
+.branch-item .branch-filter:focus-visible,
+.branch-item .branch-filter.on {
+  opacity: 1;
+}
+
+.branch-item .branch-filter.on {
+  color: var(--accent);
+}
+
+.branch-item .branch-filter + .lock {
+  margin-left: 0;
+}
+
 .search {
   display: flex;
   align-items: center;

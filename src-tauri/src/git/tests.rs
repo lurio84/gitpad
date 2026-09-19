@@ -110,7 +110,7 @@ fn repo_sin_commits_da_log_vacio() {
     assert_eq!(info.head.as_deref(), Some("master"));
     assert_eq!(info.head_hash, None, "sin commits, head_hash debe ser None");
 
-    let log = super::repo::log(&dir, 0, 50, &super::repo::LogFilter::None).expect("log de repo vacío");
+    let log = super::repo::log(&dir, 0, 50, &super::repo::LogFilter::None, None).expect("log de repo vacío");
     assert!(log.is_empty(), "un repo sin commits debe dar log vacío");
 
     let st = super::repo::status(&dir).expect("status de repo vacío");
@@ -213,7 +213,7 @@ fn log_incluye_body_del_commit() {
     std::fs::write(dir.join("f.txt"), "dos\n").unwrap();
     git(&["commit", "-qam", "sin cuerpo"]);
 
-    let log = super::repo::log(&dir, 0, 10, &super::repo::LogFilter::None).expect("log");
+    let log = super::repo::log(&dir, 0, 10, &super::repo::LogFilter::None, None).expect("log");
     assert_eq!(log.len(), 2);
     // --date-order: el más reciente primero.
     assert_eq!(log[0].subject, "sin cuerpo");
@@ -223,6 +223,76 @@ fn log_incluye_body_del_commit() {
         log[1].body, "linea 1 del cuerpo\nlinea 2 del cuerpo",
         "el body no debe llevar el salto de línea final que añade git"
     );
+}
+
+/// `log` con `branch` muestra solo el historial de esa rama (sin `--all`), sirve
+/// para remotas y rechaza refs sin el prefijo `refs/` (un nombre no debe poder
+/// leerse como opción de git).
+#[test]
+fn log_de_una_rama() {
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    let dir: PathBuf = std::env::temp_dir().join(format!(
+        "gitpad-logbranch-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let _guard = scopeguard(&dir);
+
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .args(args)
+            .current_dir(&dir)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    };
+    if !git(&["init", "-q", "-b", "master"]) {
+        eprintln!("git no disponible, se salta el test");
+        return;
+    }
+    git(&["config", "user.email", "t@t"]);
+    git(&["config", "user.name", "t"]);
+
+    std::fs::write(dir.join("f.txt"), "base
+").unwrap();
+    git(&["add", "-A"]);
+    git(&["commit", "-q", "-m", "base"]);
+    git(&["checkout", "-qb", "otra"]);
+    std::fs::write(dir.join("g.txt"), "solo otra
+").unwrap();
+    git(&["add", "-A"]);
+    git(&["commit", "-q", "-m", "solo en otra"]);
+    git(&["checkout", "-q", "master"]);
+    std::fs::write(dir.join("f.txt"), "master
+").unwrap();
+    git(&["commit", "-qam", "solo en master"]);
+
+    let none = super::repo::LogFilter::None;
+    let all = super::repo::log(&dir, 0, 10, &none, None).expect("log --all");
+    assert_eq!(all.len(), 3, "sin rama se ven todas: {all:?}");
+
+    let master = super::repo::log(&dir, 0, 10, &none, Some("refs/heads/master")).expect("log master");
+    let subjects: Vec<&str> = master.iter().map(|c| c.subject.as_str()).collect();
+    assert_eq!(subjects, ["solo en master", "base"], "master no debe traer commits de otra");
+
+    let otra = super::repo::log(&dir, 0, 10, &none, Some("refs/heads/otra")).expect("log otra");
+    let subjects: Vec<&str> = otra.iter().map(|c| c.subject.as_str()).collect();
+    assert_eq!(subjects, ["solo en otra", "base"]);
+
+    // Combina con la búsqueda: el filtro se aplica dentro de la rama.
+    let q = super::repo::LogFilter::Message("solo".into());
+    let hits = super::repo::log(&dir, 0, 10, &q, Some("refs/heads/otra")).expect("log otra + búsqueda");
+    assert_eq!(hits.len(), 1);
+
+    // Sin prefijo `refs/`: rechazada, nunca llega a git.
+    assert!(super::repo::log(&dir, 0, 10, &none, Some("--all")).is_err());
+    assert!(super::repo::log(&dir, 0, 10, &none, Some("master")).is_err());
 }
 
 /// `file_diff` debe devolver el diff del archivo pasando la ruta exacta tras
@@ -783,14 +853,14 @@ fn flujo_ui_status_stage_commit() {
     let st2 = super::repo::status(&dir).expect("status 2");
     assert!(st2.entries.is_empty(), "el árbol debería quedar limpio: {st2:?}");
 
-    let log = super::repo::log(&dir, 0, 10, &super::repo::LogFilter::None).expect("log");
+    let log = super::repo::log(&dir, 0, 10, &super::repo::LogFilter::None, None).expect("log");
     assert_eq!(log[0].subject, "cambios de la UI");
     assert_eq!(log[0].parents.len(), 1);
     assert_eq!(info.head.as_deref(), Some("master"));
 
     // Amend: cambia el mensaje del de arriba sin crear otro.
     super::repo::commit(&dir, "cambios de la UI (amend)", true).expect("amend");
-    let log2 = super::repo::log(&dir, 0, 10, &super::repo::LogFilter::None).expect("log 3");
+    let log2 = super::repo::log(&dir, 0, 10, &super::repo::LogFilter::None, None).expect("log 3");
     assert_eq!(log2.len(), log.len(), "amend no debe añadir un commit");
     assert_eq!(log2[0].subject, "cambios de la UI (amend)");
 }
@@ -1034,7 +1104,7 @@ fn cherry_pick_limpio() {
 
     git(&["checkout", "-q", "master"]);
     super::repo::cherry_pick(&dir, &hash).expect("cherry-pick limpio");
-    let log = super::repo::log(&dir, 0, 5, &super::repo::LogFilter::None).expect("log");
+    let log = super::repo::log(&dir, 0, 5, &super::repo::LogFilter::None, None).expect("log");
     assert_eq!(log[0].subject, "commit de feature");
     assert!(dir.join("feature.txt").exists());
 
@@ -1114,7 +1184,7 @@ fn rebase_conflicto_abort_y_continue() {
     super::repo::op_continue(&dir).expect("op_continue tras resolver a mano");
     assert!(super::repo::op_state(&dir).expect("op_state final").is_none());
 
-    let log = super::repo::log(&dir, 0, 10, &super::repo::LogFilter::None).expect("log final");
+    let log = super::repo::log(&dir, 0, 10, &super::repo::LogFilter::None, None).expect("log final");
     assert!(log.iter().any(|c| c.subject == "cambio en feature"), "el commit rebasado debe seguir en el historial");
     let content = std::fs::read_to_string(dir.join("f.txt")).unwrap();
     assert_eq!(content, "base\nmaster\nfeature\n");
@@ -1175,7 +1245,7 @@ fn smoke_repo_real() {
     let info = super::repo::open(Path::new(&repo)).expect("open");
     let root = Path::new(&info.root);
 
-    let log = super::repo::log(root, 0, 10, &super::repo::LogFilter::None).expect("log");
+    let log = super::repo::log(root, 0, 10, &super::repo::LogFilter::None, None).expect("log");
     assert!(!log.is_empty(), "el repo debería tener commits");
     assert_eq!(log[0].hash.len(), 40, "hash completo esperado");
 

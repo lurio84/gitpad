@@ -45,6 +45,16 @@ import "./App.css";
 
 const LOG_PAGE = 200;
 
+/** Cómo se pide el log de una pestaña. Vive en un `ref` (ver `filters`) porque
+ * `reload` es estable y no puede leer `tabs` por closure. */
+interface LogView {
+  mode: LogFilterMode;
+  query: string;
+  branch: string | null;
+  limit: number;
+}
+const DEFAULT_VIEW: LogView = { mode: "message", query: "", branch: null, limit: LOG_PAGE };
+
 /** Tipo de una ref del log para pintar su chip. `parse_refs` (repo.rs) ya quitó
  * los prefijos `HEAD -> ` y `tag: `, así que se deduce contrastando con la lista
  * de ramas: lo que no es rama es un tag. */
@@ -54,6 +64,10 @@ function refKind(name: string, branches: Branch[]): "head" | "local" | "remote" 
   if (b.is_head) return "head";
   return b.is_remote ? "remote" : "local";
 }
+
+/** Ref completa que se le pasa a `get_log` para ver solo una rama. */
+const branchRef = (b: Branch) => (b.is_remote ? "refs/remotes/" : "refs/heads/") + b.name;
+const branchLabel = (ref: string) => ref.replace(/^refs\/(heads|remotes)\//, "");
 
 /** "19 sep" el mismo año, "19 sep 2025" otro año. El detalle completo va en el
  * `title`: en la columna de commits, que es estrecha, la fecha larga se partía. */
@@ -116,6 +130,10 @@ interface Tab {
   rebasing: boolean;
   filterMode: LogFilterMode;
   filterQuery: string;
+  /** Ref completa (`refs/heads/x`) si el log se limita a una rama; null = todas. */
+  filterBranch: string | null;
+  /** Cuántos commits se pidieron al log (crece de LOG_PAGE en LOG_PAGE). */
+  logLimit: number;
   error: string | null;
   loading: boolean;
 }
@@ -147,6 +165,8 @@ function emptyTab(root: string): Tab {
     rebasing: false,
     filterMode: "message",
     filterQuery: "",
+    filterBranch: null,
+    logLimit: LOG_PAGE,
     error: null,
     loading: true,
   };
@@ -226,23 +246,25 @@ function App() {
   // la pestaña) porque `reload` es estable y no puede leer `tabs` por
   // closure; `reload` lee de aquí, y aplicar un filtro nuevo escribe aquí
   // antes de recargar.
-  const filters = useRef<Map<string, { mode: LogFilterMode; query: string }>>(
-    new Map(),
-  );
+  const filters = useRef<Map<string, LogView>>(new Map());
 
   const reload = useCallback(
     async (
       root: string,
       opts?: {
         dropOnError?: boolean;
-        filter?: { mode: LogFilterMode; query: string };
+        filter?: Partial<Omit<LogView, "limit">>;
       },
     ) => {
-      if (opts?.filter) filters.current.set(root, opts.filter);
-      const filter = filters.current.get(root) ?? {
-        mode: "message" as LogFilterMode,
-        query: "",
-      };
+      // Un filtro nuevo vuelve a la primera página.
+      if (opts?.filter) {
+        filters.current.set(root, {
+          ...(filters.current.get(root) ?? DEFAULT_VIEW),
+          ...opts.filter,
+          limit: LOG_PAGE,
+        });
+      }
+      const filter = filters.current.get(root) ?? DEFAULT_VIEW;
       const gen = (gens.current.get(root) ?? 0) + 1;
       gens.current.set(root, gen);
       setTabs((ts) =>
@@ -251,7 +273,7 @@ function App() {
       try {
         const info = await openRepo(root);
         const [log, st, branches, opState, stashes, defaultBase] = await Promise.all([
-          getLog(info.root, 0, LOG_PAGE, filter.mode, filter.query),
+          getLog(info.root, 0, filter.limit, filter.mode, filter.query, filter.branch),
           getStatus(info.root),
           getBranches(info.root),
           getOpState(info.root),
@@ -266,6 +288,8 @@ function App() {
                   ...t,
                   info,
                   commits: log,
+                  filterBranch: filter.branch,
+                  logLimit: filter.limit,
                   branches,
                   status: st,
                   opState,
@@ -416,10 +440,7 @@ function App() {
     // su resultado, más fresco, no debe ser pisado por este cuando termine.
     const gen = gens.current.get(root) ?? 0;
     try {
-      const filter = filters.current.get(root) ?? {
-        mode: "message" as LogFilterMode,
-        query: "",
-      };
+      const filter = filters.current.get(root) ?? DEFAULT_VIEW;
       const [info, opState, status, branches, stashes, log] = await Promise.all([
         // Sin esto `head_hash` queda obsoleto tras un commit hecho fuera de
         // gitpad: el nodo //WIP se dibujaría enganchado al HEAD viejo (se
@@ -430,7 +451,9 @@ function App() {
         getStatus(root),
         getBranches(root),
         getStashes(root),
-        getLog(root, 0, LOG_PAGE, filter.mode, filter.query),
+        // `filter.limit`, no LOG_PAGE: si Bernardo ya cargó más páginas, un
+        // alt-tab no debe encogerle la lista.
+        getLog(root, 0, filter.limit, filter.mode, filter.query, filter.branch),
       ]);
       if (gens.current.get(root) !== gen) return;
       patchTab(root, { info, opState, status, branches, stashes, commits: log });
@@ -623,6 +646,37 @@ function App() {
     [reload, patchTab],
   );
 
+  /** Limita el log a una rama (ref completa) o, con null, vuelve a verlas todas.
+   * El clic en la rama sigue siendo checkout: esto es un control aparte. */
+  const applyBranch = useCallback(
+    (root: string, branch: string | null) => {
+      patchTab(root, { filterBranch: branch });
+      void reload(root, { filter: { branch } });
+    },
+    [reload, patchTab],
+  );
+
+  /** Pide otra página. Se refetchea desde 0 con un límite mayor en vez de
+   * pedir con `skip` y concatenar: con commits nuevos entrando entre páginas
+   * los offsets se corren y salen filas repetidas. No pasa por `reload`, que
+   * limpia la selección. */
+  const loadMore = useCallback(
+    async (root: string) => {
+      const view = filters.current.get(root) ?? DEFAULT_VIEW;
+      const limit = view.limit + LOG_PAGE;
+      const gen = gens.current.get(root) ?? 0;
+      try {
+        const log = await getLog(root, 0, limit, view.mode, view.query, view.branch);
+        if (gens.current.get(root) !== gen) return;
+        filters.current.set(root, { ...view, limit });
+        patchTab(root, { commits: log, logLimit: limit });
+      } catch (e) {
+        failTab(root, e);
+      }
+    },
+    [patchTab, failTab],
+  );
+
   const doCheckout = useCallback(
     async (root: string, name: string) => {
       patchTab(root, { error: null });
@@ -725,10 +779,14 @@ function App() {
   // cambios sin comprometer Y se sabe a qué commit engancharlo. Se antepone
   // aquí, no en `Graph.tsx`, para que el mismo array alimente el SVG y la
   // lista — así nunca pueden desalinearse entre sí.
+  // Tampoco al ver solo otra rama: el WIP es del árbol de trabajo de la rama
+  // activa y quedaría colgado, con trazo discontinuo, de un commit que no se
+  // ve en la lista.
   const showWip = !!(
     active?.status &&
     active.status.entries.length > 0 &&
-    active.info?.head_hash
+    active.info?.head_hash &&
+    (!active.filterBranch || active.filterBranch === `refs/heads/${active.info.head}`)
   );
   const displayCommits =
     showWip && active
@@ -908,6 +966,26 @@ function App() {
                         >
                           {b.is_head && <span className="dot">●</span>}
                           <span className="branch-name">{b.name}</span>
+                          <button
+                            className={`link branch-filter${
+                              active.filterBranch === branchRef(b) ? " on" : ""
+                            }`}
+                            title={
+                              active.filterBranch === branchRef(b)
+                                ? "Volver a ver todas las ramas"
+                                : "Ver solo el historial de esta rama"
+                            }
+                            aria-pressed={active.filterBranch === branchRef(b)}
+                            onClick={(ev) => {
+                              ev.stopPropagation();
+                              applyBranch(
+                                active.root,
+                                active.filterBranch === branchRef(b) ? null : branchRef(b),
+                              );
+                            }}
+                          >
+                            {active.filterBranch === branchRef(b) ? "◉" : "○"}
+                          </button>
                           {locked && <span className="lock">⊘</span>}
                         </li>
                       );
@@ -960,6 +1038,14 @@ function App() {
                   onClick={() => void doOpAbort(active.root)}
                 >
                   {active.opBusy ? "…" : "Abortar"}
+                </button>
+              </p>
+            )}
+            {active.filterBranch && (
+              <p className="filter-info">
+                Viendo solo <strong>{branchLabel(active.filterBranch)}</strong> ·{" "}
+                <button className="link" onClick={() => applyBranch(active.root, null)}>
+                  ver todas
                 </button>
               </p>
             )}
@@ -1064,8 +1150,12 @@ function App() {
                 })}
               </ol>
             </div>
-            {active.commits.length === LOG_PAGE && (
-              <p className="more">Mostrando los primeros {LOG_PAGE} commits.</p>
+            {active.commits.length >= active.logLimit && (
+              <div className="more">
+                <button onClick={() => void loadMore(active.root)}>
+                  Cargar más commits
+                </button>
+              </div>
             )}
           </section>
 
