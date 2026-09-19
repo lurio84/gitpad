@@ -71,4 +71,6 @@ const report = await evalJs(`
 `);
 console.log(JSON.stringify(report, null, 2));
 
+await send("Emulation.setEmulatedMedia", { features: [] }); // deja la app como estaba (con animaciones)
+
 close();

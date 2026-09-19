@@ -119,5 +119,6 @@ await sleep(600);
 check("'ver todas' vuelve a la primera página del log completo", (await rows()) === 200, `filas=${await rows()}`);
 
 console.log(fails === 0 ? "\nTODO OK" : `\n${fails} FALLO(S)`);
+await send("Emulation.setEmulatedMedia", { features: [] }); // deja la app como estaba (con animaciones)
 ws.close();
 process.exit(fails ? 1 : 0);

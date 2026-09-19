@@ -183,5 +183,7 @@ if (needsHorizontalScroll) {
   );
 }
 
+await send("Emulation.setEmulatedMedia", { features: [] }); // deja la app como estaba (con animaciones)
+
 close();
 console.log("--- fin ---");

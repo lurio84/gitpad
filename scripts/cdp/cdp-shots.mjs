@@ -104,4 +104,5 @@ if (MODE === "conflict") {
 console.log("errores de consola:", consoleErrors);
 // Sin esto la ventana se queda con el viewport falseado hasta recargar.
 await send("Emulation.clearDeviceMetricsOverride");
+await send("Emulation.setEmulatedMedia", { features: [] }); // deja la app como estaba (con animaciones)
 ws.close();

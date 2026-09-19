@@ -99,6 +99,8 @@ const svgInfo = await evalJs(`
 `);
 console.log("SVG:", JSON.stringify(svgInfo, null, 2));
 
+await send("Emulation.setEmulatedMedia", { features: [] }); // deja la app como estaba (con animaciones)
+
 close();
 
 // --- Verificación estructural contra git real ---
