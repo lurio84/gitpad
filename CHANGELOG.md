@@ -4,8 +4,10 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-19
+
 Repaso visual con identidad propia y tres huecos del flujo de revisión de
-commits. Sin publicar todavía (falta pasar el binario de producción).
+commits. Verificado contra el binario de producción (0 errores de consola).
 
 ### Added
 
