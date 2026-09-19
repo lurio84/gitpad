@@ -312,9 +312,9 @@ function App() {
         t.root === root ? { ...t, sel, diff: null, diffLoading: true } : t,
       ),
     );
-    // Un archivo sin seguir, o un commit de fusión (git no da combined diff
-    // por defecto), no tienen con qué compararse: no se llama a git.
-    if ((sel.t === "file" && sel.untracked) || (sel.t === "commit" && sel.isMerge)) {
+    // Un archivo sin seguir no tiene con qué compararse: no se llama a git. Un
+    // commit de fusión sí: el backend lo compara contra su primer padre.
+    if (sel.t === "file" && sel.untracked) {
       setTabs((ts) =>
         ts.map((t) =>
           t.root === root && sameSelection(t.sel, sel)
@@ -354,11 +354,7 @@ function App() {
   /** Se llama al seleccionar un commit distinto (no al picar un archivo dentro
    * del mismo commit, que reusa la lista ya cargada). */
   const loadCommitFiles = useCallback(
-    async (root: string, hash: string, isMerge: boolean) => {
-      if (isMerge) {
-        patchTab(root, { commitFiles: [], commitFilesLoading: false });
-        return;
-      }
+    async (root: string, hash: string) => {
       setTabs((ts) =>
         ts.map((t) =>
           t.root === root ? { ...t, commitFilesLoading: true } : t,
@@ -1030,7 +1026,7 @@ function App() {
                           hash: c.hash,
                           isMerge,
                         });
-                        void loadCommitFiles(active.root, c.hash, isMerge);
+                        void loadCommitFiles(active.root, c.hash);
                       }}
                     >
                       <div className="commit-line">
@@ -1080,9 +1076,7 @@ function App() {
               note={
                 active.sel?.t === "file" && active.sel.untracked
                   ? "Archivo sin seguir — todavía no hay nada que comparar."
-                  : active.sel?.t === "commit" && active.sel.isMerge
-                    ? "Commit de merge — sin diff propio; mira los commits que mergea."
-                    : undefined
+                  : undefined
               }
             />
           </section>
@@ -1103,19 +1097,14 @@ function App() {
                 })()}
                 <h2>Archivos del commit</h2>
                 {active.commitFilesLoading && <p className="clean">Cargando…</p>}
-                {!active.commitFilesLoading && active.sel.isMerge && (
-                  <p className="clean">
-                    Commit de merge — sin lista propia de archivos.
-                  </p>
+                {active.sel.isMerge && (
+                  <p className="clean">Merge — cambios respecto al primer padre.</p>
                 )}
-                {!active.commitFilesLoading &&
-                  !active.sel.isMerge &&
-                  active.commitFiles.length === 0 && (
-                    <p className="clean">Sin archivos.</p>
-                  )}
+                {!active.commitFilesLoading && active.commitFiles.length === 0 && (
+                  <p className="clean">Sin archivos.</p>
+                )}
                 <ul>
                   {!active.commitFilesLoading &&
-                    !active.sel.isMerge &&
                     active.commitFiles.map((cf) => {
                       const sel = active.sel;
                       const on = sel?.t === "commit" && sel.file === cf.path;

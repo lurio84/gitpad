@@ -326,8 +326,7 @@ fn commit_diff_contra_el_padre() {
 }
 
 /// `commit_files` cubre: commit normal, commit raíz, renombrado (3 registros
-/// NUL), ruta no-ASCII y merge (lista vacía, igual que `commit_diff` da diff
-/// vacío en un merge).
+/// NUL), ruta no-ASCII y merge (lista y diff contra su primer padre).
 #[test]
 fn commit_files_casos() {
     use std::path::PathBuf;
@@ -410,8 +409,9 @@ fn commit_files_casos() {
     assert_eq!(na_files.len(), 1);
     assert_eq!(na_files[0].path, "café.txt");
 
-    // Merge: dos ramas divergentes, sin --first-parent → lista vacía, igual
-    // que commit_diff da diff vacío para un merge.
+    // Merge: dos ramas divergentes. Con `-m --first-parent` un merge enseña lo
+    // que trajo la rama fusionada respecto a su primer padre; sin ello git daba
+    // lista y diff vacíos y no había forma de revisar un merge.
     git(&["checkout", "-qb", "rama"]);
     std::fs::write(dir.join("rama.txt"), "rama\n").unwrap();
     git(&["add", "-A"]);
@@ -423,7 +423,15 @@ fn commit_files_casos() {
     git(&["merge", "-q", "--no-ff", "-m", "merge", "rama"]);
     let merge_hash = git_out(&["rev-parse", "HEAD"]);
     let merge_files = super::repo::commit_files(&dir, &merge_hash).expect("commit_files merge");
-    assert!(merge_files.is_empty(), "merge debe dar lista vacía: {merge_files:?}");
+    assert_eq!(merge_files.len(), 1, "merge debe listar lo que trajo la rama: {merge_files:?}");
+    assert_eq!(merge_files[0].path, "rama.txt");
+    assert_eq!(merge_files[0].status, "A");
+    let merge_diff = super::repo::commit_diff(&dir, &merge_hash).expect("commit_diff merge");
+    assert!(merge_diff.contains("+rama"), "el diff del merge debe traer rama.txt: {merge_diff:?}");
+    assert!(!merge_diff.contains("master.txt"), "lo del primer padre no cuenta como cambio del merge");
+    let merge_file_diff = super::repo::commit_file_diff(&dir, &merge_hash, "rama.txt", None)
+        .expect("commit_file_diff merge");
+    assert!(merge_file_diff.contains("+rama"), "{merge_file_diff:?}");
 
     assert!(super::repo::commit_files(&dir, "no-hex").is_err());
 }

@@ -389,8 +389,10 @@ fn split_xy(xy: &str) -> GitResult<(char, char)> {
 
 /// Diff completo de un commit (contra su primer padre; contra el árbol vacío si
 /// es raíz). Devuelve el texto unificado tal cual, sin la cabecera del commit.
-/// Los commits de merge dan salida vacía (git no muestra combined diff por
-/// defecto) — aceptable para v0.
+/// `-m --first-parent` hace que un commit de merge se compare contra su primer
+/// padre (lo que trajo la rama fusionada a la rama actual) en vez de dar salida
+/// vacía — git no muestra el combined diff por defecto. En un commit normal o
+/// raíz no cambia nada (comprobado con git 2.55).
 pub fn commit_diff(repo: &Path, hash: &str) -> GitResult<String> {
     if hash.is_empty() || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err(GitError::Parse(format!("hash de commit inválido: {hash}")));
@@ -406,6 +408,8 @@ pub fn commit_diff(repo: &Path, hash: &str) -> GitResult<String> {
             "--format=",
             "--no-color",
             "--no-ext-diff",
+            "-m",
+            "--first-parent",
             "-U3",
             hash,
         ],
@@ -413,9 +417,9 @@ pub fn commit_diff(repo: &Path, hash: &str) -> GitResult<String> {
 }
 
 /// Lista de archivos tocados por un commit (contra su primer padre; contra el
-/// árbol vacío si es raíz, igual que `commit_diff`). Los commits de merge dan
-/// lista vacía, igual que `commit_diff` da diff vacío — mismo motivo: git no
-/// calcula un diff combinado por defecto.
+/// árbol vacío si es raíz, igual que `commit_diff`). Un commit de merge lista lo
+/// que cambió respecto a su primer padre, con el mismo `-m --first-parent` que
+/// `commit_diff`.
 pub fn commit_files(repo: &Path, hash: &str) -> GitResult<Vec<CommitFile>> {
     if hash.is_empty() || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err(GitError::Parse(format!("hash de commit inválido: {hash}")));
@@ -425,7 +429,7 @@ pub fn commit_files(repo: &Path, hash: &str) -> GitResult<Vec<CommitFile>> {
     // en silencio — mismo motivo que en `status()`.
     let bytes = run_git_bytes(
         repo,
-        &["show", "--format=", "--name-status", "-z", hash],
+        &["show", "--format=", "--name-status", "-z", "-m", "--first-parent", hash],
     )?;
     let out = String::from_utf8(bytes)
         .map_err(|_| GitError::Parse("la salida de git show tiene bytes no UTF-8".into()))?;
@@ -488,6 +492,8 @@ pub fn commit_file_diff(
         "--format=",
         "--no-color",
         "--no-ext-diff",
+        "-m",
+        "--first-parent",
         "-U3",
         hash,
         "--",
