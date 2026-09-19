@@ -655,6 +655,20 @@ button.busy::after {
   font-weight: 600;
 }
 
+/* Pulso único del chip HEAD al montarse (cambia de commit → se remonta). */
+.ref.head {
+  animation: head-pulse var(--dur-4) var(--ease-out) 1;
+}
+
+@keyframes head-pulse {
+  from {
+    box-shadow: 0 0 0 0 var(--accent);
+  }
+  to {
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
+
 .ref.local {
   border-color: #2f5578;
   color: var(--accent);
@@ -1018,6 +1032,7 @@ button.busy::after {
 }
 
 .conflict-banner {
+  animation: banner-in var(--dur-3) var(--ease-out) backwards;
   margin: 0;
   padding: 8px 12px;
   background: #33280f;
@@ -1027,6 +1042,13 @@ button.busy::after {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+@keyframes banner-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
 }
 
 .commit-meta .cherry-btn {

@@ -54,6 +54,7 @@ async function connect() {
     });
   }
   await send("Runtime.enable");
+  await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] }); // sin animaciones: mediciones y capturas deterministas
   await send("Page.enable");
   await send("Log.enable");
   async function evalJs(expression) {

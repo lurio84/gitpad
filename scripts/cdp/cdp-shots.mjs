@@ -71,6 +71,7 @@ const clickEntry = (text) =>
 
 await send("Log.enable");
 await send("Runtime.enable");
+await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] }); // sin animaciones: mediciones y capturas deterministas
 await send("Page.enable");
 // Mismo tamaño en cada tanda: si no, antes/después no son comparables.
 await send("Emulation.setDeviceMetricsOverride", {

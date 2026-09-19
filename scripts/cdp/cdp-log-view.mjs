@@ -60,6 +60,8 @@ const moreBtn = () =>
   evalJs("Array.from(document.querySelectorAll('.more button')).some(b => /Cargar más/.test(b.textContent))");
 
 await send("Runtime.enable");
+
+await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] }); // sin animaciones: mediciones y capturas deterministas
 await send("Page.enable");
 await evalJs(`localStorage.setItem('gitpad:tabs', JSON.stringify([${JSON.stringify(REPO)}]));
   localStorage.setItem('gitpad:active', ${JSON.stringify(REPO)}); 'ok'`);

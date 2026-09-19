@@ -1169,15 +1169,21 @@ function App() {
                       }}
                     >
                       <div className="commit-line">
-                        {c.refs.map((r, i) => (
+                        {c.refs.map((r, i) => {
+                          const kind = refKind(r, active.branches);
+                          return (
                           <span
-                            key={`${i}-${r}`}
-                            className={`ref ${refKind(r, active.branches)}`}
+                            // El chip HEAD lleva el hash en la key: al cambiar de
+                            // commit (checkout, commit nuevo) se remonta y repite
+                            // su pulso una vez.
+                            key={`${i}-${r}${kind === "head" ? active.info?.head_hash : ""}`}
+                            className={`ref ${kind}`}
                             title={r}
                           >
                             {r}
                           </span>
-                        ))}
+                          );
+                        })}
                         <span className="subject">{c.subject}</span>
                       </div>
                       <div className="commit-meta">
