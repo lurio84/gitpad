@@ -60,7 +60,8 @@ const DEFAULT_VIEW: LogView = { mode: "message", query: "", branch: null, limit:
  * de ramas: lo que no es rama es un tag. */
 function refKind(name: string, branches: Branch[]): "head" | "local" | "remote" | "tag" {
   const b = branches.find((x) => x.name === name);
-  if (!b) return "tag";
+  // `branches()` descarta `origin/HEAD` a propósito: no es un tag.
+  if (!b) return name.endsWith("/HEAD") ? "remote" : "tag";
   if (b.is_head) return "head";
   return b.is_remote ? "remote" : "local";
 }
@@ -310,6 +311,16 @@ function App() {
         );
       } catch (e) {
         if (gens.current.get(root) !== gen) return;
+        // La rama filtrada pudo desaparecer (fetch --prune, borrada desde otra
+        // herramienta): `git log <ref>` falla y con él toda la recarga. Se
+        // vuelve a ver todas las ramas y se reintenta una vez (sin rama ya no
+        // puede repetirse el mismo fallo).
+        if (filter.branch) {
+          filters.current.set(root, { ...filter, branch: null });
+          patchTab(root, { filterBranch: null });
+          void reload(root, opts);
+          return;
+        }
         const msg = isGitError(e) ? e.message : String(e);
         if (opts?.dropOnError) {
           // Repo movido/borrado desde la última sesión: se quita la pestaña en
@@ -665,12 +676,17 @@ function App() {
       const view = filters.current.get(root) ?? DEFAULT_VIEW;
       const limit = view.limit + LOG_PAGE;
       const gen = gens.current.get(root) ?? 0;
+      // El límite nuevo se publica ANTES del await: un refresco por foco que
+      // llegue mientras la página está en vuelo pediría el límite viejo, y al
+      // resolver después encogería la lista dejando `logLimit` desfasado (el
+      // botón "Cargar más" desaparecería).
+      filters.current.set(root, { ...view, limit });
       try {
         const log = await getLog(root, 0, limit, view.mode, view.query, view.branch);
         if (gens.current.get(root) !== gen) return;
-        filters.current.set(root, { ...view, limit });
         patchTab(root, { commits: log, logLimit: limit });
       } catch (e) {
+        filters.current.set(root, view);
         failTab(root, e);
       }
     },
@@ -761,6 +777,7 @@ function App() {
     const idx = tabs.findIndex((t) => t.root === root);
     const next = tabs.filter((t) => t.root !== root);
     gens.current.delete(root);
+    filters.current.delete(root);
     setTabs(next);
     persistTabs(next);
     if (activeRoot === root) {

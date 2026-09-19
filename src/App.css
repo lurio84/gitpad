@@ -518,6 +518,11 @@ body {
   font-size: var(--fs-meta);
 }
 
+.diff-toolbar button:hover:not(:disabled):not(.on) {
+  background: var(--control-hover);
+  border-color: var(--control-hover-line);
+}
+
 .diff-toolbar button.on {
   color: var(--ink);
   background: var(--sel-bg);

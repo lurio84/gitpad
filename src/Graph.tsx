@@ -66,6 +66,8 @@ interface Edge {
   toLane: number;
   /** El padre no está entre los commits cargados (corte de paginación). */
   boundary: boolean;
+  /** Arista hacia un padre que no es el primero: la rama fusionada. */
+  isMerge: boolean;
 }
 
 /** Conecta cada commit con sus padres usando los carriles ya asignados. */
@@ -74,14 +76,15 @@ function buildEdges(commits: Commit[], rows: LaneRow[]): Edge[] {
   const edges: Edge[] = [];
   commits.forEach((c, i) => {
     const fromLane = rows[i].lane;
-    for (const p of c.parents) {
+    c.parents.forEach((p, pi) => {
       const toRow = rowByHash.get(p);
+      const isMerge = pi > 0;
       if (toRow === undefined) {
-        edges.push({ fromRow: i, fromLane, toRow: i, toLane: fromLane, boundary: true });
+        edges.push({ fromRow: i, fromLane, toRow: i, toLane: fromLane, boundary: true, isMerge });
       } else {
-        edges.push({ fromRow: i, fromLane, toRow, toLane: rows[toRow].lane, boundary: false });
+        edges.push({ fromRow: i, fromLane, toRow, toLane: rows[toRow].lane, boundary: false, isMerge });
       }
-    }
+    });
   });
   return edges;
 }
@@ -133,7 +136,10 @@ export function Graph({ commits }: { commits: Commit[] }) {
         }
         const x2 = cx(e.toLane);
         const y2 = cy(e.toRow);
-        const color = laneColor(e.fromLane === e.toLane ? e.fromLane : e.toLane);
+        // La línea es de la rama a la que pertenece: la del commit hijo cuando
+        // va a su primer padre, la de la rama fusionada cuando es un merge. Así
+        // un nodo naranja no sale de una línea azul.
+        const color = laneColor(e.isMerge ? e.toLane : e.fromLane);
         if (x1 === x2) {
           return (
             <line
@@ -168,8 +174,9 @@ export function Graph({ commits }: { commits: Commit[] }) {
             cx={cx(r.lane)}
             cy={cy(i)}
             r={DOT_R}
-            fill="none"
-            style={{ stroke: laneColor(r.lane) }}
+            // Relleno del color del fondo, no `none`: con `none` la arista, que
+            // arranca en el centro del nodo, se veía a través del círculo.
+            style={{ fill: "var(--bg-0)", stroke: laneColor(r.lane) }}
             strokeWidth={2}
           />
         ) : (

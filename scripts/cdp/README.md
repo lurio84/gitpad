@@ -32,6 +32,10 @@ de depuración de WebView2.
      un commit (árbol de trabajo → commit → archivo side-by-side → unificado → merge) con
      una captura por estado, para comparar antes/después de un cambio visual. Con
      `conflict`, solo el estado del banner (repo con rebase parado por conflicto).
+   - `cdp-log-view.mjs <repo> <rama>` — «Cargar más commits» y filtro por rama: 3 páginas
+     (200/400/todo), selección conservada al cargar más, refresco por foco sin encoger la
+     lista, chip «Viendo solo X», sin checkout al filtrar. Necesita un repo de >400
+     commits en la rama activa y otra rama con historial propio.
    - `cdp-shot.mjs <ruta-de-salida.png>` — captura de pantalla + errores de consola
      posteriores a la conexión (para pillar violaciones de CSP, 404, etc.).
    - `cdp-commit-files.mjs <ruta-a-un-repo>` — FEAT-001 (listado de archivos de un

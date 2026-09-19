@@ -87,9 +87,14 @@ await sleep(1500);
 check("el refresco por foco mantiene 400 filas", (await rows()) === 400, `filas=${await rows()}`);
 
 await evalJs("Array.from(document.querySelectorAll('.more button')).find(b => /Cargar más/.test(b.textContent)).click(); 'ok'");
-await waitFor(`document.querySelectorAll('.commit:not(.wip)').length === ${Math.min(600, total)} ? true : null`);
-check(`la 3ª página trae el resto (${total} commits en total)`, (await rows()) === total, `filas=${await rows()}`);
-check("sin más commits, el botón desaparece", !(await moreBtn()));
+const expected3 = Math.min(600, total);
+await waitFor(`document.querySelectorAll('.commit:not(.wip)').length === ${expected3} ? true : null`);
+check(`la 3ª página trae ${expected3} filas (${total} en total)`, (await rows()) === expected3);
+// El botón solo desaparece si ya no queda historia por cargar.
+check(
+  total <= 600 ? "sin más commits, el botón desaparece" : "con más historia, el botón sigue",
+  (await moreBtn()) === total > 600,
+);
 
 // --- F3: filtrar por rama ---
 const clickFilter = (name) =>
@@ -101,7 +106,8 @@ await waitFor("document.querySelector('.filter-info strong') ? true : null");
 await sleep(500);
 const chip = await evalJs("document.querySelector('.filter-info strong')?.textContent");
 check("aparece el chip 'Viendo solo <rama>'", chip === BRANCH, `chip=${chip}`);
-check(`solo ${inBranch} commits de esa rama`, (await rows()) === inBranch, `filas=${await rows()} esperadas=${inBranch}`);
+const expectedBranch = Math.min(200, inBranch);
+check(`solo ${expectedBranch} commits de esa rama`, (await rows()) === expectedBranch, `filas=${await rows()} esperadas=${expectedBranch}`);
 const branchNow = await evalJs("document.querySelector('.branch-item.current .branch-name')?.textContent");
 check("filtrar no hace checkout", branchNow !== BRANCH, `rama actual=${branchNow}`);
 

@@ -101,4 +101,6 @@ if (MODE === "conflict") {
   await shot("6-commit-de-merge");
 }
 console.log("errores de consola:", consoleErrors);
+// Sin esto la ventana se queda con el viewport falseado hasta recargar.
+await send("Emulation.clearDeviceMetricsOverride");
 ws.close();

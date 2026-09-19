@@ -88,8 +88,8 @@ pub struct Branch {
     pub is_remote: bool,
 }
 
-/// Qué filtrar en `log`. `--all` en los dos casos con filtro: buscar solo en
-/// la rama activa no es lo que se espera de "buscar un commit".
+/// Qué filtrar en `log`. La búsqueda va sobre `--all` salvo que `log` reciba una
+/// rama: entonces se acota a ella (lo pide el usuario al filtrar por rama).
 pub enum LogFilter {
     None,
     /// Mensaje del commit. `-F` (literal, no regex) + `-i` (sin distinguir
