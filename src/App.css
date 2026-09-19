@@ -221,6 +221,7 @@ button.busy::after {
 }
 
 .topbar {
+  position: relative;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -228,6 +229,68 @@ button.busy::after {
   padding: 8px 12px;
   background: var(--bg-1);
   border-bottom: 1px solid var(--line);
+}
+
+/* Barra de carga indeterminada bajo la topbar: un segmento que cruza de
+   izquierda a derecha. Absoluta, así no mueve nada al aparecer. */
+.progress {
+  position: absolute;
+  inset: auto 0 0;
+  height: 2px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.progress::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 35%;
+  background: var(--accent);
+  animation: progress-slide 1.1s var(--ease-in-out) infinite;
+}
+
+@keyframes progress-slide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(300%);
+  }
+}
+
+/* Esqueletos de carga. No se muestran hasta pasados 150 ms (`backwards` con
+   delay y opacity 0 en el `from`): una carga rápida no debe parpadear. */
+.skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 12px;
+  animation: skel-in 1ms linear 150ms backwards;
+}
+
+@keyframes skel-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.skel-bar {
+  display: block;
+  height: 10px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--bg-2) 25%, var(--control-hover) 50%, var(--bg-2) 75%);
+  background-size: 300% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0 0;
+  }
 }
 
 .repo-name {

@@ -181,7 +181,14 @@ export function DiffView({ raw, loading, note }: Props) {
     }
   }, [mode]);
 
-  if (loading) return <div className="diff-empty">Cargando diff…</div>;
+  if (loading)
+    return (
+      <div className="skeleton diff-skeleton" role="status" aria-label="Cargando diff">
+        {[92, 64, 78, 100, 55, 86, 70].map((w, i) => (
+          <span key={i} className="skel-bar" style={{ width: `${w}%` }} />
+        ))}
+      </div>
+    );
   if (note) return <div className="diff-empty">{note}</div>;
   if (raw === null)
     return <div className="diff-empty">Selecciona un commit o un archivo.</div>;

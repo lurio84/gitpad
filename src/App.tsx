@@ -940,6 +940,7 @@ function App() {
             </form>
           </>
         )}
+        {active?.loading && <div className="progress" role="progressbar" aria-label="Cargando" />}
       </header>
 
       {tabs.length > 0 && (
@@ -1238,7 +1239,13 @@ function App() {
                   ) : null;
                 })()}
                 <h2>Archivos del commit</h2>
-                {active.commitFilesLoading && <p className="clean">Cargando…</p>}
+                {active.commitFilesLoading && (
+                  <div className="skeleton" role="status" aria-label="Cargando archivos">
+                    {[80, 60, 72].map((w, i) => (
+                      <span key={i} className="skel-bar" style={{ width: `${w}%` }} />
+                    ))}
+                  </div>
+                )}
                 {active.sel.isMerge && (
                   <p className="clean">Merge — cambios respecto al primer padre.</p>
                 )}
