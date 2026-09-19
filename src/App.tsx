@@ -241,6 +241,13 @@ function restoreRoots(): string[] {
 function App() {
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activeRoot, setActiveRoot] = useState<string | null>(null);
+  // Trazado del grafo (momento firma): solo tras una acción del usuario (abrir
+  // un repo, cambiar de pestaña) y en el arranque — nunca en un refresco.
+  // `introPending` recuerda que toca; `introOn` es la clase que dura lo que la
+  // animación (el timer va en el efecto, sin cleanup: si el efecto se relanza
+  // por otra dependencia, no debe cortar el timer y dejar la clase puesta).
+  const introPending = useRef(true);
+  const [introOn, setIntroOn] = useState(false);
   // Abrir un repo resuelve su toplevel antes de crear la pestaña; ese hueco
   // corto no cuelga de ninguna pestaña, así que su estado va aparte.
   const [opening, setOpening] = useState(false);
@@ -756,6 +763,7 @@ function App() {
     try {
       const info = await openRepo(path);
       if (tabs.some((t) => t.root === info.root)) {
+        if (info.root !== activeRoot) introPending.current = true;
         setActiveRoot(info.root);
         persistActive(info.root);
         return;
@@ -763,6 +771,7 @@ function App() {
       const next = [...tabs, { ...emptyTab(info.root), info }];
       setTabs(next);
       persistTabs(next);
+      introPending.current = true;
       setActiveRoot(info.root);
       persistActive(info.root);
       void reload(info.root);
@@ -774,6 +783,7 @@ function App() {
   };
 
   const selectTab = (root: string) => {
+    if (root !== activeRoot) introPending.current = true;
     setActiveRoot(root);
     persistActive(root);
   };
@@ -793,6 +803,14 @@ function App() {
   };
 
   const active = tabs.find((t) => t.root === activeRoot) ?? null;
+
+  useEffect(() => {
+    if (introPending.current && active && !active.loading && active.commits.length > 0) {
+      introPending.current = false;
+      setIntroOn(true);
+      window.setTimeout(() => setIntroOn(false), 900);
+    }
+  }, [active?.root, active?.loading, active?.commits.length]);
   const onRefresh = () => {
     if (active) void reload(active.root);
   };
@@ -1094,7 +1112,7 @@ function App() {
                 </button>
               </p>
             )}
-            <div className="commit-list">
+            <div className={`commit-list${introOn ? " intro" : ""}`}>
               <Graph commits={displayCommits} />
               <ol>
                 {displayCommits.map((c) => {

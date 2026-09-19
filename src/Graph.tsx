@@ -94,6 +94,14 @@ function buildEdges(commits: Commit[], rows: LaneRow[]): Edge[] {
 const LANES = 8;
 const laneColor = (lane: number) => `var(--lane-${lane % LANES})`;
 
+/** Solo las primeras filas se animan al trazar el grafo (App.css `.intro`): son
+ * las visibles, y animar cientos de trazos a la vez no compensa. `--i` escalona
+ * la entrada por fila. */
+const INTRO_ROWS = 14;
+const igClass = (row: number) => (row < INTRO_ROWS ? "ig" : undefined);
+const withRow = (style: Record<string, string>, row: number) =>
+  ({ ...style, "--i": row }) as React.CSSProperties;
+
 function cy(row: number) {
   return row * ROW_H + ROW_H / 2;
 }
@@ -148,7 +156,9 @@ export function Graph({ commits }: { commits: Commit[] }) {
               y1={y1}
               x2={x2}
               y2={y2}
-              style={{ stroke: color }}
+              className={igClass(e.fromRow)}
+              style={withRow({ stroke: color }, e.fromRow)}
+              pathLength={1}
               strokeWidth={2}
             />
           );
@@ -160,7 +170,9 @@ export function Graph({ commits }: { commits: Commit[] }) {
             key={i}
             d={`M ${x1} ${y1} C ${x1} ${ymid}, ${x2} ${ymid}, ${x2} ${y2}`}
             fill="none"
-            style={{ stroke: color }}
+            className={igClass(e.fromRow)}
+            style={withRow({ stroke: color }, e.fromRow)}
+            pathLength={1}
             strokeWidth={2}
           />
         );
@@ -176,7 +188,8 @@ export function Graph({ commits }: { commits: Commit[] }) {
             r={DOT_R}
             // Relleno del color del fondo, no `none`: con `none` la arista, que
             // arranca en el centro del nodo, se veía a través del círculo.
-            style={{ fill: "var(--bg-0)", stroke: laneColor(r.lane) }}
+            className={igClass(i)}
+            style={withRow({ fill: "var(--bg-0)", stroke: laneColor(r.lane) }, i)}
             strokeWidth={2}
           />
         ) : (
@@ -185,7 +198,8 @@ export function Graph({ commits }: { commits: Commit[] }) {
             cx={cx(r.lane)}
             cy={cy(i)}
             r={DOT_R}
-            style={{ fill: laneColor(r.lane) }}
+            className={igClass(i)}
+            style={withRow({ fill: laneColor(r.lane) }, i)}
           />
         ),
       )}

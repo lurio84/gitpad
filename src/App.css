@@ -177,6 +177,43 @@ button.busy::after {
   border-top-color: #08170e;
 }
 
+/* Trazado del grafo al abrir un repo o cambiar de pestaña (App.tsx pone
+   `.intro` en `.commit-list` solo entonces). Solo animan las 14 primeras
+   filas (`.ig`, las visibles). Las aristas se dibujan con dashoffset sobre un
+   `pathLength` normalizado a 1 — en CSS, nunca como atributo: cdp-graph.mjs
+   distingue las aristas de frontera por su atributo stroke-dasharray. Los
+   nodos aparecen con un pequeño rebote, escalonados por fila. */
+@keyframes graph-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes graph-pop {
+  from {
+    transform: scale(0);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+
+.commit-list.intro .graph :is(line, path).ig:not([stroke-dasharray]) {
+  stroke-dasharray: 1;
+  animation: graph-draw var(--dur-3) var(--ease-out) backwards;
+  animation-delay: min(calc(var(--i) * 14ms), 200ms);
+}
+
+.commit-list.intro .graph circle.ig {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: graph-pop var(--dur-2) var(--ease-spring) backwards;
+  animation-delay: min(calc(var(--i) * 14ms + 60ms), 260ms);
+}
+
 .app {
   display: flex;
   flex-direction: column;
