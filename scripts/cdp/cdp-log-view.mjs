@@ -66,8 +66,10 @@ await send("Page.enable");
 await evalJs(`localStorage.setItem('gitpad:tabs', JSON.stringify([${JSON.stringify(REPO)}]));
   localStorage.setItem('gitpad:active', ${JSON.stringify(REPO)}); 'ok'`);
 await send("Page.reload", { ignoreCache: true });
-await waitFor("document.querySelectorAll('.commit').length > 0 ? true : null");
-await sleep(500);
+// La primera fila que aparece suele ser el nodo //WIP: esperar a `.commit > 0`
+// y dormir 500 ms no basta (el arranque del repo grande se pasa de ahí y la
+// lista se quedaba a medio montar, con menos de 6 filas que clicar más abajo).
+await waitFor("document.querySelectorAll('.commit:not(.wip)').length === 200 ? true : null");
 
 // --- F1: cargar más ---
 check("1ª página = 200 filas", (await rows()) === 200, `filas=${await rows()}`);
@@ -109,13 +111,20 @@ await sleep(500);
 const chip = await evalJs("document.querySelector('.filter-info strong')?.textContent");
 check("aparece el chip 'Viendo solo <rama>'", chip === BRANCH, `chip=${chip}`);
 const expectedBranch = Math.min(200, inBranch);
+// El chip es optimista: `applyBranch` lo pinta antes de pedir el log, así que
+// esperar al chip no garantiza que la lista ya esté filtrada. Con las tres
+// páginas cargadas (453 filas montadas) el recambio tarda ~1,1 s, más que el
+// sleep de arriba: hay que esperar al recuento de filas, no al chip.
+await waitFor(`document.querySelectorAll('.commit:not(.wip)').length === ${expectedBranch} ? true : null`).catch(() => {});
 check(`solo ${expectedBranch} commits de esa rama`, (await rows()) === expectedBranch, `filas=${await rows()} esperadas=${expectedBranch}`);
 const branchNow = await evalJs("document.querySelector('.branch-item.current .branch-name')?.textContent");
 check("filtrar no hace checkout", branchNow !== BRANCH, `rama actual=${branchNow}`);
 
 await evalJs("Array.from(document.querySelectorAll('.filter-info .link')).find(b => /ver todas/.test(b.textContent)).click(); 'ok'");
 await waitFor("!document.querySelector('.filter-info strong') ? true : null");
-await sleep(600);
+// Mismo caso que arriba: quitar el filtro también repinta el chip antes de que
+// llegue el log, así que se espera al recuento de filas.
+await waitFor("document.querySelectorAll('.commit:not(.wip)').length === 200 ? true : null").catch(() => {});
 check("'ver todas' vuelve a la primera página del log completo", (await rows()) === 200, `filas=${await rows()}`);
 
 console.log(fails === 0 ? "\nTODO OK" : `\n${fails} FALLO(S)`);
