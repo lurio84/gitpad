@@ -68,6 +68,22 @@ pub struct CommitFile {
     pub status: String,
 }
 
+/// Contenido de un archivo en un commit (`git show <hash>:<ruta>`).
+#[derive(Debug, Serialize)]
+pub struct FileContent {
+    /// Texto del archivo, o `None` si es binario.
+    pub text: Option<String>,
+    pub binary: bool,
+    /// `true` si se recortó a `MAX_FILE_BYTES`.
+    pub truncated: bool,
+    /// Tamaño real del blob completo, aunque `text` vaya recortado.
+    pub bytes: u64,
+}
+
+/// Tope de lo que se devuelve al visor. 2 MiB de texto ya son inmanejables en
+/// la UI; más allá solo sirve para congelarla.
+pub const MAX_FILE_BYTES: usize = 2 * 1024 * 1024;
+
 #[derive(Debug, Serialize)]
 pub struct Branch {
     /// Nombre a mostrar: `"master"` para una rama local, `"origin/master"`
@@ -518,6 +534,87 @@ pub fn commit_file_diff(
     }
     args.push(file);
     run_git(repo, &args)
+}
+
+/// Todas las rutas del árbol de un commit, recursivo (`git ls-tree -r`). Es la
+/// vista "todos los archivos" del commit, no solo los que tocó.
+///
+/// `-r` sin `-t` no emite entradas de directorio: solo salen blobs (y gitlinks
+/// de submódulo, que aparecen como una ruta más y no se recorren).
+pub fn tree_files(repo: &Path, hash: &str) -> GitResult<Vec<String>> {
+    if hash.is_empty() || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(GitError::Parse(format!("hash de commit inválido: {hash}")));
+    }
+    // UTF-8 estricto, no lossy: con `-z` git no octal-escapa las rutas, y una
+    // ruta mal decodificada es un identificador roto — mismo motivo que en
+    // `commit_files`.
+    let bytes = run_git_bytes(repo, &["ls-tree", "-r", "--name-only", "-z", hash])?;
+    let out = String::from_utf8(bytes)
+        .map_err(|_| GitError::Parse("la salida de git ls-tree tiene bytes no UTF-8".into()))?;
+    Ok(out
+        .split('\0')
+        .filter(|t| !t.is_empty())
+        .map(str::to_string)
+        .collect())
+}
+
+/// Contenido de un archivo tal y como estaba en un commit.
+///
+/// El spec va como UN solo argumento `<hash>:<ruta>`: por eso una ruta que
+/// empiece por `-` es inofensiva — el argumento empieza siempre por el hash
+/// (hex, ya validado), así que git nunca lo lee como opción. Tampoco cabe un
+/// `--` aquí: `git show` interpreta ese argumento como object spec, no como
+/// pathspec (al revés que en `commit_file_diff`, donde la ruta sí va tras `--`).
+///
+/// Degradaciones deliberadas, ambas acotadas al visor:
+/// - Binario (NUL en los primeros 8000 bytes, la heurística del propio git):
+///   no se devuelve texto.
+/// - Texto no-UTF-8 sin NULs (un fuente en latin-1, p.ej.): se decodifica con
+///   `from_utf8_lossy` en vez de fallar. Aquí el contenido es *para mirar*, no
+///   un identificador; `status()` y `commit_files` son estrictos a propósito
+///   porque lo que decodifican son rutas con las que luego se opera.
+pub fn file_content(repo: &Path, hash: &str, file: &str) -> GitResult<FileContent> {
+    if hash.is_empty() || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(GitError::Parse(format!("hash de commit inválido: {hash}")));
+    }
+    if file.is_empty() || file.contains('\0') {
+        return Err(GitError::Parse("ruta de archivo inválida".into()));
+    }
+    // TODO(v0.8): `run_git_bytes` materializa el blob entero en memoria antes de
+    // aplicar el tope; un pre-chequeo con `git cat-file -s <hash>:<ruta>` lo
+    // evitaría.
+    let bytes = run_git_bytes(repo, &["show", &format!("{hash}:{file}")])?;
+    let total = bytes.len() as u64;
+
+    if bytes.iter().take(8000).any(|b| *b == 0) {
+        return Ok(FileContent {
+            text: None,
+            binary: true,
+            truncated: false,
+            bytes: total,
+        });
+    }
+
+    let truncated = bytes.len() > MAX_FILE_BYTES;
+    let cut = if truncated { &bytes[..MAX_FILE_BYTES] } else { &bytes[..] };
+    let text = match std::str::from_utf8(cut) {
+        Ok(s) => s.to_string(),
+        // Recorte a mitad de un carácter multibyte: `valid_up_to()` es el
+        // último límite válido. Solo si venimos de truncar — un archivo
+        // completo que acaba en una secuencia incompleta es no-UTF-8 real.
+        Err(e) if truncated && e.error_len().is_none() => {
+            String::from_utf8_lossy(&cut[..e.valid_up_to()]).into_owned()
+        }
+        Err(_) => String::from_utf8_lossy(cut).into_owned(),
+    };
+
+    Ok(FileContent {
+        text: Some(text),
+        binary: false,
+        truncated,
+        // Siempre el tamaño real, no el del texto devuelto.
+        bytes: total,
+    })
 }
 
 /// Diff de un archivo en el árbol de trabajo. `staged` elige entre el diff del

@@ -78,6 +78,17 @@ export interface CommitFile {
   status: string;
 }
 
+/** Contenido de un archivo en un commit (`git show <hash>:<ruta>`). */
+export interface FileContent {
+  /** Texto del archivo, o `null` si es binario. */
+  text: string | null;
+  binary: boolean;
+  /** `true` si se recortó a 2 MiB. */
+  truncated: boolean;
+  /** Tamaño real del blob completo, aunque `text` vaya recortado. */
+  bytes: number;
+}
+
 export interface Stash {
   index: number;
   /** Tal cual lo da `git stash list` (incluye el prefijo "On <rama>: "). */

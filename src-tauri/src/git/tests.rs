@@ -506,6 +506,233 @@ fn commit_files_casos() {
     assert!(super::repo::commit_files(&dir, "no-hex").is_err());
 }
 
+/// `tree_files` lista TODO el árbol del commit, no solo lo que tocó: rutas
+/// anidadas con su prefijo de directorio, nombres no-ASCII sin octal-escapar
+/// y, por `-r` sin `-t`, ninguna entrada de directorio suelta.
+#[test]
+fn tree_files_lista_el_arbol_completo() {
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    let dir: PathBuf = std::env::temp_dir().join(format!(
+        "gitpad-tree-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let _guard = scopeguard(&dir);
+
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .args(args)
+            .current_dir(&dir)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    };
+    let git_out = |args: &[&str]| {
+        String::from_utf8_lossy(
+            &Command::new("git")
+                .args(args)
+                .current_dir(&dir)
+                .output()
+                .unwrap()
+                .stdout,
+        )
+        .trim()
+        .to_string()
+    };
+    if !git(&["init", "-q", "-b", "master"]) {
+        eprintln!("git no disponible, se salta el test");
+        return;
+    }
+    git(&["config", "user.email", "t@t"]);
+    git(&["config", "user.name", "t"]);
+
+    std::fs::write(dir.join("raiz.txt"), "raiz\n").unwrap();
+    std::fs::create_dir_all(dir.join("src/interno")).unwrap();
+    std::fs::write(dir.join("src/uno.rs"), "uno\n").unwrap();
+    std::fs::write(dir.join("src/interno/dos.rs"), "dos\n").unwrap();
+    std::fs::create_dir_all(dir.join("ñandú")).unwrap();
+    std::fs::write(dir.join("ñandú/ç.txt"), "aves\n").unwrap();
+    git(&["add", "-A"]);
+    git(&["commit", "-q", "-m", "arbol"]);
+    let hash = git_out(&["rev-parse", "HEAD"]);
+
+    let mut files = super::repo::tree_files(&dir, &hash).expect("tree_files");
+    files.sort();
+    assert_eq!(
+        files,
+        vec![
+            "raiz.txt".to_string(),
+            "src/interno/dos.rs".to_string(),
+            "src/uno.rs".to_string(),
+            "ñandú/ç.txt".to_string(),
+        ],
+        "el árbol debe listar blobs con su ruta completa y sin escapar",
+    );
+    // `-r` sin `-t`: los directorios no son entradas propias.
+    assert!(!files.iter().any(|f| f == "src" || f == "ñandú"));
+
+    // Un commit anterior no ve lo que se añadió después.
+    std::fs::write(dir.join("tarde.txt"), "tarde\n").unwrap();
+    git(&["add", "-A"]);
+    git(&["commit", "-q", "-m", "mas tarde"]);
+    let viejos = super::repo::tree_files(&dir, &hash).expect("tree_files viejo");
+    assert!(!viejos.iter().any(|f| f == "tarde.txt"));
+
+    assert!(matches!(
+        super::repo::tree_files(&dir, "HEAD;rm"),
+        Err(super::error::GitError::Parse(_))
+    ));
+}
+
+/// `file_content` y sus dos guardas obligatorias (binario por NUL, tope de
+/// tamaño con corte en un límite de carácter UTF-8), más la degradación lossy
+/// para texto no-UTF-8 y los errores de ruta inexistente / hash inválido.
+#[test]
+fn file_content_casos() {
+    use super::repo::MAX_FILE_BYTES;
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    let dir: PathBuf = std::env::temp_dir().join(format!(
+        "gitpad-fcontent-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let _guard = scopeguard(&dir);
+
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .args(args)
+            .current_dir(&dir)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    };
+    let git_out = |args: &[&str]| {
+        String::from_utf8_lossy(
+            &Command::new("git")
+                .args(args)
+                .current_dir(&dir)
+                .output()
+                .unwrap()
+                .stdout,
+        )
+        .trim()
+        .to_string()
+    };
+    if !git(&["init", "-q", "-b", "master"]) {
+        eprintln!("git no disponible, se salta el test");
+        return;
+    }
+    git(&["config", "user.email", "t@t"]);
+    git(&["config", "user.name", "t"]);
+    // Sin esto, con autocrlf global activo git podría normalizar los saltos y
+    // el texto exacto dejaría de serlo.
+    git(&["config", "core.autocrlf", "false"]);
+
+    // (b) texto llano.
+    std::fs::write(dir.join("plano.txt"), "hola\nmundo\n").unwrap();
+    // (c) binario: NUL dentro de los primeros 8000 bytes.
+    std::fs::write(dir.join("bin.dat"), [0x89u8, 0x50, 0x00, 0x1a, 0x0a]).unwrap();
+    // (e) texto latin-1: 0xE9 (é) suelto, sin ningún NUL.
+    std::fs::write(dir.join("latin1.txt"), [b'h', b'o', b'l', 0xE9, b'\n']).unwrap();
+    // (d) >2 MiB de caracteres multibyte. La "x" inicial descoloca el corte:
+    // sin ella el tope cae justo en un límite de carácter (MAX es par y "é"
+    // ocupa 2 bytes) y la guarda no se ejercitaría.
+    let mut grande = String::from("x");
+    grande.push_str(&"é".repeat(1_100_000));
+    let grande_len = grande.len() as u64;
+    assert!(grande_len > MAX_FILE_BYTES as u64);
+    std::fs::write(dir.join("grande.txt"), &grande).unwrap();
+    // (h) archivo que cambia entre dos commits.
+    std::fs::write(dir.join("versionado.txt"), "v1\n").unwrap();
+
+    git(&["add", "-A"]);
+    git(&["commit", "-q", "-m", "primero"]);
+    let hash1 = git_out(&["rev-parse", "HEAD"]);
+
+    std::fs::write(dir.join("versionado.txt"), "v2\n").unwrap();
+    git(&["commit", "-qam", "segundo"]);
+    let hash2 = git_out(&["rev-parse", "HEAD"]);
+
+    // (b) texto exacto.
+    let plano = super::repo::file_content(&dir, &hash1, "plano.txt").expect("plano");
+    assert_eq!(plano.text.as_deref(), Some("hola\nmundo\n"));
+    assert!(!plano.binary);
+    assert!(!plano.truncated);
+    assert_eq!(plano.bytes, 11);
+
+    // (c) binario.
+    let bin = super::repo::file_content(&dir, &hash1, "bin.dat").expect("bin");
+    assert!(bin.binary, "un NUL en los primeros 8000 bytes es binario");
+    assert!(bin.text.is_none());
+    assert!(!bin.truncated);
+    assert_eq!(bin.bytes, 5);
+
+    // (d) recorte en un límite de carácter válido.
+    let big = super::repo::file_content(&dir, &hash1, "grande.txt").expect("grande");
+    assert!(big.truncated, "más de 2 MiB debe recortarse");
+    assert_eq!(big.bytes, grande_len, "bytes siempre es el tamaño real");
+    assert!(!big.binary);
+    let texto = big.text.expect("texto recortado");
+    assert!(
+        texto.len() <= MAX_FILE_BYTES,
+        "el texto recortado mide {} bytes",
+        texto.len()
+    );
+    assert_eq!(
+        texto.len(),
+        MAX_FILE_BYTES - 1,
+        "debe retroceder exactamente el byte suelto del carácter partido"
+    );
+    assert!(texto.ends_with('é'), "no debe acabar a mitad de carácter");
+    assert!(
+        !texto.contains('\u{FFFD}'),
+        "el corte no debe meter caracteres de reemplazo"
+    );
+
+    // (e) no-UTF-8 sin NULs: texto degradado, no error ni binario.
+    let latin = super::repo::file_content(&dir, &hash1, "latin1.txt").expect("latin1");
+    assert!(!latin.binary, "sin NULs no es binario aunque no sea UTF-8");
+    let lt = latin.text.expect("texto lossy");
+    assert!(lt.starts_with("hol"), "texto: {lt:?}");
+    assert_eq!(latin.bytes, 5);
+    assert!(!latin.truncated);
+
+    // (h) el commit viejo devuelve el contenido viejo.
+    let v1 = super::repo::file_content(&dir, &hash1, "versionado.txt").expect("v1");
+    assert_eq!(v1.text.as_deref(), Some("v1\n"));
+    let v2 = super::repo::file_content(&dir, &hash2, "versionado.txt").expect("v2");
+    assert_eq!(v2.text.as_deref(), Some("v2\n"));
+
+    // (f) ruta inexistente: el fallo de git sale tal cual.
+    assert!(matches!(
+        super::repo::file_content(&dir, &hash1, "no-existe.txt"),
+        Err(super::error::GitError::CommandFailed { .. })
+    ));
+
+    // (g) hash no hexadecimal: ni se llega a invocar git.
+    assert!(matches!(
+        super::repo::file_content(&dir, "HEAD;rm", "plano.txt"),
+        Err(super::error::GitError::Parse(_))
+    ));
+    // Ruta vacía o con NUL tampoco llega a git.
+    assert!(matches!(
+        super::repo::file_content(&dir, &hash1, ""),
+        Err(super::error::GitError::Parse(_))
+    ));
+}
+
 /// `commit_file_diff` para un archivo renombrado necesita la ruta vieja
 /// (`orig_path`) además de la nueva: un pathspec restringido solo a la ruta
 /// nueva no empareja con la vieja y git enseña un archivo nuevo en vez de un

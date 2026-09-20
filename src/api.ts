@@ -1,6 +1,15 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import type { Branch, Commit, CommitFile, OpState, RepoInfo, Stash, Status } from "./types";
+import type {
+  Branch,
+  Commit,
+  CommitFile,
+  FileContent,
+  OpState,
+  RepoInfo,
+  Stash,
+  Status,
+} from "./types";
 
 export type LogFilterMode = "none" | "message" | "content";
 
@@ -59,6 +68,19 @@ export function getCommitFileDiff(
   origPath: string | null,
 ): Promise<string> {
   return invoke("get_commit_file_diff", { path, hash, file, origPath });
+}
+
+/** Todas las rutas del árbol de un commit, recursivo (no solo las que tocó). */
+export function getTreeFiles(path: string, hash: string): Promise<string[]> {
+  return invoke("get_tree_files", { path, hash });
+}
+
+export function getFileContent(
+  path: string,
+  hash: string,
+  file: string,
+): Promise<FileContent> {
+  return invoke("get_file_content", { path, hash, file });
 }
 
 export function stagePaths(path: string, paths: string[]): Promise<void> {
