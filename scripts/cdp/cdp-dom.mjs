@@ -1,4 +1,6 @@
 // Verificación E2E del flujo real de la UI (DOM), no solo invoke directo.
+import { keepLocalStorage } from "./_ls.mjs";
+
 const CDP_HTTP = "http://localhost:9222/json";
 const REPO = process.argv[2];
 if (!REPO) {
@@ -56,6 +58,7 @@ function sleep(ms) {
 }
 
 const { evalJs, send, close } = await connect();
+const restoreLS = await keepLocalStorage(evalJs, send);
 
 // Sembrar localStorage con el repo como única pestaña y recargar: ejercita
 // restoreRoots() -> reload() de verdad, no un invoke manual.
@@ -154,5 +157,6 @@ const afterClear = await evalJs(
 );
 console.log("línea de filtro tras 'limpiar':", afterClear);
 
+await restoreLS();
 close();
 console.log("--- fin ---");

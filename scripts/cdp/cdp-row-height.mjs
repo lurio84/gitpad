@@ -1,3 +1,5 @@
+import { keepLocalStorage } from "./_ls.mjs";
+
 const CDP_HTTP = "http://localhost:9222/json";
 const REPO = process.argv[2];
 
@@ -36,6 +38,7 @@ async function connect() {
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
 const { evalJs, send, close } = await connect();
+const restoreLS = await keepLocalStorage(evalJs, send);
 
 await evalJs(
   `localStorage.setItem('gitpad:tabs', JSON.stringify([${JSON.stringify(REPO)}]));
@@ -73,4 +76,5 @@ console.log(JSON.stringify(report, null, 2));
 
 await send("Emulation.setEmulatedMedia", { features: [] }); // deja la app como estaba (con animaciones)
 
+await restoreLS();
 close();

@@ -1,5 +1,7 @@
 // Verificación E2E de FEAT-001: listado de archivos por commit (A), diff de
 // un solo archivo (B) y toggle side-by-side/unificado (C) — vía el DOM real.
+import { keepLocalStorage } from "./_ls.mjs";
+
 const CDP_HTTP = "http://localhost:9222/json";
 const REPO = process.argv[2];
 if (!REPO) {
@@ -63,6 +65,7 @@ function check(label, cond) {
 }
 
 const { evalJs, send, close } = await connect();
+const restoreLS = await keepLocalStorage(evalJs, send);
 
 await evalJs(
   `localStorage.removeItem('gitpad:diff-view');
@@ -186,6 +189,7 @@ const consoleErrors = await evalJs(
 );
 console.log("errores de consola:", consoleErrors);
 
+await restoreLS();
 close();
 console.log(`--- fin: ${fails === 0 ? "TODO OK" : `${fails} fallo(s)`} ---`);
 process.exit(fails === 0 ? 0 : 1);

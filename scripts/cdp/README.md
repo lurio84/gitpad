@@ -54,9 +54,8 @@ de depuración de WebView2.
    - `node cdp-v070.mjs` — v0.7.0 completa, **sin argumentos** (crea sus dos repos de
      prueba en el directorio temporal y los borra): commit con Resumen+Descripción y
      amend, reordenar pestañas, paneles redimensionables con su clamp, modo árbol y
-     «Todos los archivos». Es el primero que **respalda y restaura `localStorage`**
-     (los demás pisan las pestañas reales sin devolverlas) y que **sale con código 1**
-     si falla un check o hay un error de consola. Acepta dev y producción. El
+     «Todos los archivos». **Sale con código 1** si falla un check o hay un error de
+     consola. Acepta dev y producción. El
      reordenado de pestañas usa drag nativo interceptado por CDP: cubre la lógica y
      `draggable`, pero no el flag `dragDropEnabled` de Tauri, que va por debajo de CDP.
    - Aceptan como target tanto `localhost:1420` (dev) como `tauri.localhost`
@@ -82,6 +81,14 @@ de depuración de WebView2.
 
 ## Notas
 
+- **`localStorage` se respalda y se restaura.** Los scripts que siembran pestañas
+  (`cdp-graph`, `cdp-dom`, `cdp-row-height`, `cdp-log-view`, `cdp-shots`,
+  `cdp-split-diff`, `cdp-commit-files`) usan `_ls.mjs`: guardan las claves `gitpad:*`
+  antes de sembrar y las devuelven al terminar, también si el script falla a medias
+  (`process.exit` o excepción), y recargan la página para que el estado en memoria
+  no las vuelva a pisar. Contra `tauri dev` da igual (origen `localhost:1420`); contra
+  el binario de producción (`tauri.localhost`) es lo que evita llevarse las pestañas
+  reales de quien lo usa. `cdp-v070.mjs` trae su propia copia del mismo patrón.
 - **Estos scripts se ejecutan de uno en uno.** Todos se conectan a la MISMA
   página del WebView y siembran `localStorage` antes de recargar, así que dos a
   la vez se pisan la pestaña y dan fallos que no existen.

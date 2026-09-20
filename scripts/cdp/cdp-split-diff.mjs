@@ -7,6 +7,8 @@
 // dev (localhost:1420) como el binario de producción (tauri.localhost): no
 // hace falta tocar el script al pasar de `npm run tauri dev` a verificar el
 // `.exe` empaquetado.
+import { keepLocalStorage } from "./_ls.mjs";
+
 const CDP_HTTP = "http://localhost:9222/json";
 const REPO = process.argv[2];
 const HASH = process.argv[3];
@@ -78,6 +80,7 @@ function sleep(ms) {
 }
 
 const { evalJs, send, consoleErrors, close } = await connect();
+const restoreLS = await keepLocalStorage(evalJs, send);
 
 await evalJs(
   `localStorage.setItem('gitpad:tabs', JSON.stringify([${JSON.stringify(REPO)}]));
@@ -185,5 +188,6 @@ if (needsHorizontalScroll) {
 
 await send("Emulation.setEmulatedMedia", { features: [] }); // deja la app como estaba (con animaciones)
 
+await restoreLS();
 close();
 console.log("--- fin ---");

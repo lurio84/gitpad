@@ -3,6 +3,7 @@
 // El repo necesita más de 2 páginas de commits (LOG_PAGE = 200) en la rama
 // activa y una segunda rama con historial propio distinto.
 import { execFileSync } from "node:child_process";
+import { keepLocalStorage } from "./_ls.mjs";
 
 const [REPO, BRANCH] = process.argv.slice(2);
 if (!REPO || !BRANCH) {
@@ -63,6 +64,7 @@ await send("Runtime.enable");
 
 await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-reduced-motion", value: "reduce" }] }); // sin animaciones: mediciones y capturas deterministas
 await send("Page.enable");
+const restoreLS = await keepLocalStorage(evalJs, send);
 await evalJs(`localStorage.setItem('gitpad:tabs', JSON.stringify([${JSON.stringify(REPO)}]));
   localStorage.setItem('gitpad:active', ${JSON.stringify(REPO)}); 'ok'`);
 await send("Page.reload", { ignoreCache: true });
@@ -129,5 +131,6 @@ check("'ver todas' vuelve a la primera página del log completo", (await rows())
 
 console.log(fails === 0 ? "\nTODO OK" : `\n${fails} FALLO(S)`);
 await send("Emulation.setEmulatedMedia", { features: [] }); // deja la app como estaba (con animaciones)
+await restoreLS();
 ws.close();
 process.exit(fails ? 1 : 0);

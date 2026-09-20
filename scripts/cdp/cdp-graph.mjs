@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { keepLocalStorage } from "./_ls.mjs";
 
 const CDP_HTTP = "http://localhost:9222/json";
 const REPO = process.argv[2];
@@ -44,6 +45,7 @@ async function connect() {
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
 const { evalJs, send, close } = await connect();
+const restoreLS = await keepLocalStorage(evalJs, send);
 
 // Sembrar la pestaña y recargar (mismo truco que en sesiones anteriores).
 await evalJs(
@@ -101,6 +103,7 @@ console.log("SVG:", JSON.stringify(svgInfo, null, 2));
 
 await send("Emulation.setEmulatedMedia", { features: [] }); // deja la app como estaba (con animaciones)
 
+await restoreLS();
 close();
 
 // --- Verificación estructural contra git real ---

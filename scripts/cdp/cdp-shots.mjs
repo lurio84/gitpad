@@ -6,6 +6,7 @@
 // (el repo debe tener un rebase/merge parado por conflicto).
 import fs from "node:fs";
 import path from "node:path";
+import { keepLocalStorage } from "./_ls.mjs";
 
 const [REPO, OUT, PREFIX, MODE] = process.argv.slice(2);
 if (!REPO || !OUT || !PREFIX) {
@@ -77,6 +78,7 @@ await send("Page.enable");
 await send("Emulation.setDeviceMetricsOverride", {
   width: 1100, height: 720, deviceScaleFactor: 1, mobile: false,
 });
+const restoreLS = await keepLocalStorage(evalJs, send);
 await evalJs(`localStorage.setItem('gitpad:tabs', JSON.stringify([${JSON.stringify(REPO)}]));
   localStorage.setItem('gitpad:active', ${JSON.stringify(REPO)});
   localStorage.removeItem('gitpad:diff-view'); 'ok'`);
@@ -105,4 +107,5 @@ console.log("errores de consola:", consoleErrors);
 // Sin esto la ventana se queda con el viewport falseado hasta recargar.
 await send("Emulation.clearDeviceMetricsOverride");
 await send("Emulation.setEmulatedMedia", { features: [] }); // deja la app como estaba (con animaciones)
+await restoreLS();
 ws.close();
