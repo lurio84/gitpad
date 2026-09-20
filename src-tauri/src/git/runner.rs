@@ -94,12 +94,13 @@ pub fn run_git_stdin(repo: &Path, args: &[&str], input: &str) -> GitResult<Strin
         }
     })?;
 
-    child
-        .stdin
-        .take()
-        .expect("stdin piped")
-        .write_all(input.as_bytes())
-        .map_err(|e| GitError::Io(e.to_string()))?;
+    // Si git sale antes de leer todo el stdin, la escritura falla con BrokenPipe.
+    // No se propaga con `?`: taparía el mensaje real de git, que solo se lee
+    // después del `wait`. El `drop` es obligatorio: mientras `stdin` siga vivo,
+    // git espera más entrada y `wait_with_output` no volvería nunca.
+    let mut stdin = child.stdin.take().expect("stdin piped");
+    let write_err = stdin.write_all(input.as_bytes()).err();
+    drop(stdin);
 
     let output = child
         .wait_with_output()
@@ -112,6 +113,10 @@ pub fn run_git_stdin(repo: &Path, args: &[&str], input: &str) -> GitResult<Strin
             code: output.status.code().unwrap_or(-1),
             stderr: if stderr.is_empty() { stdout } else { stderr },
         });
+    }
+
+    if let Some(e) = write_err {
+        return Err(GitError::Io(e.to_string()));
     }
 
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())

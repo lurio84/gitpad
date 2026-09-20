@@ -1703,6 +1703,28 @@ fn log_de_un_archivo_sigue_renombrados_y_es_literal() {
     }
 }
 
+/// Si `git` muere antes de leer su stdin, el mensaje que debe llegar es el suyo,
+/// no el `BrokenPipe` de la escritura. Con un flag inexistente git sale al
+/// instante; 1 MiB de entrada supera el buffer de la tubería, así que la
+/// escritura no puede completarse (determinista, no depende de la carrera).
+#[test]
+fn run_git_stdin_devuelve_el_error_de_git_y_no_el_broken_pipe() {
+    use super::error::GitError;
+    use super::runner::run_git_stdin;
+    let Some(dir) = repo_temporal("stdinpipe") else {
+        return;
+    };
+    let _guard = scopeguard(&dir);
+    let entrada = "x".repeat(1024 * 1024);
+    match run_git_stdin(&dir, &["--flag-que-no-existe"], &entrada) {
+        Err(GitError::CommandFailed { stderr, .. }) => assert!(
+            !stderr.is_empty(),
+            "el error de git debe traer su mensaje, no venir vacío"
+        ),
+        otro => panic!("esperaba CommandFailed con el mensaje de git, salió {otro:?}"),
+    }
+}
+
 /// Un blob por encima del tope alto no se lee: `cat-file -s` da el tamaño sin
 /// materializarlo. Con el tope inyectado pequeño, para no crear 64 MiB en disco.
 /// Por debajo del tope todo sigue igual (texto recortado a `MAX_FILE_BYTES`).
