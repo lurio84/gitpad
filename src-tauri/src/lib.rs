@@ -111,6 +111,31 @@ fn merge_branch(path: String, from: String) -> GitResult<()> {
 }
 
 #[tauri::command(async)]
+fn create_branch(path: String, name: String, at: Option<String>) -> GitResult<()> {
+    git::repo::create_branch(Path::new(&path), &name, at.as_deref())
+}
+
+#[tauri::command(async)]
+fn rename_branch(path: String, old: String, new: String) -> GitResult<()> {
+    git::repo::rename_branch(Path::new(&path), &old, &new)
+}
+
+#[tauri::command(async)]
+fn delete_branch(path: String, name: String, force: bool) -> GitResult<()> {
+    git::repo::delete_branch(Path::new(&path), &name, force)
+}
+
+#[tauri::command(async)]
+fn create_tag(path: String, name: String, at: Option<String>) -> GitResult<()> {
+    git::repo::create_tag(Path::new(&path), &name, at.as_deref())
+}
+
+#[tauri::command(async)]
+fn delete_tag(path: String, name: String) -> GitResult<()> {
+    git::repo::delete_tag(Path::new(&path), &name)
+}
+
+#[tauri::command(async)]
 fn get_default_base(path: String) -> GitResult<Option<String>> {
     git::repo::default_base(Path::new(&path))
 }
@@ -216,6 +241,11 @@ pub fn run() {
             cherry_pick,
             rebase_onto,
             merge_branch,
+            create_branch,
+            rename_branch,
+            delete_branch,
+            create_tag,
+            delete_tag,
             get_default_base
         ])
         .run(tauri::generate_context!())

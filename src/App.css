@@ -1304,3 +1304,73 @@ body.resizing {
   display: grid;
   place-items: center;
 }
+
+/* Cabecera del panel de ramas: título + «nueva rama» siempre visible (crear una
+   rama no puede depender de descubrir el clic derecho). */
+.branches-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 12px 8px;
+}
+
+.branches-head h2 {
+  margin: 0;
+}
+
+.branches-head button {
+  padding: 0 8px;
+  line-height: 20px;
+}
+
+/* Menú contextual (clic derecho en ramas, commits y tags). */
+.ctx-menu {
+  position: fixed;
+  z-index: 50;
+  min-width: 190px;
+  max-width: 320px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-2);
+  border: 1px solid var(--control-hover-line);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.ctx-heading {
+  padding: 4px 8px 6px;
+  margin-bottom: 4px;
+  font-size: var(--fs-meta);
+  color: var(--ink-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-bottom: 1px solid var(--line);
+}
+
+.ctx-menu button {
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--ink);
+  padding: 5px 8px;
+  border-radius: 4px;
+  font-size: var(--fs-ui);
+  cursor: pointer;
+}
+
+.ctx-menu button:hover:not(:disabled),
+.ctx-menu button:focus-visible {
+  background: var(--control-hover);
+}
+
+.ctx-menu button.danger {
+  color: var(--danger);
+}
+
+.ctx-menu button:disabled {
+  color: var(--ink-dim);
+  opacity: 0.6;
+  cursor: default;
+}

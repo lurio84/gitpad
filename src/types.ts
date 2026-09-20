@@ -54,7 +54,8 @@ export interface GitError {
     | "not_a_repo"
     | "command_failed"
     | "io"
-    | "parse";
+    | "parse"
+    | "not_merged";
   message: string;
 }
 

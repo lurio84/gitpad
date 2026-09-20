@@ -179,6 +179,29 @@ export function mergeBranch(path: string, from: string): Promise<void> {
   return invoke("merge_branch", { path, from });
 }
 
+/** Crea la rama y cambia a ella. `at`: hash de partida; sin él, HEAD. */
+export function createBranch(path: string, name: string, at?: string): Promise<void> {
+  return invoke("create_branch", { path, name, at: at ?? null });
+}
+
+export function renameBranch(path: string, old: string, newName: string): Promise<void> {
+  return invoke("rename_branch", { path, old, new: newName });
+}
+
+/** Sin `force`, falla con `not_merged` si la rama tiene commits fuera de HEAD. */
+export function deleteBranch(path: string, name: string, force: boolean): Promise<void> {
+  return invoke("delete_branch", { path, name, force });
+}
+
+/** Tag ligero y local. `at`: hash; sin él, HEAD. */
+export function createTag(path: string, name: string, at?: string): Promise<void> {
+  return invoke("create_tag", { path, name, at: at ?? null });
+}
+
+export function deleteTag(path: string, name: string): Promise<void> {
+  return invoke("delete_tag", { path, name });
+}
+
 export function getDefaultBase(path: string): Promise<string | null> {
   return invoke("get_default_base", { path });
 }

@@ -3,6 +3,10 @@ import {
   checkoutBranch,
   cherryPick,
   commit as commitRepo,
+  createBranch,
+  createTag,
+  deleteBranch,
+  deleteTag,
   discardPaths,
   fetchRemote,
   getBranches,
@@ -25,6 +29,7 @@ import {
   pullRemote,
   pushRemote,
   rebaseOnto,
+  renameBranch,
   stagePaths,
   stashApply,
   stashDrop,
@@ -32,6 +37,7 @@ import {
   unstagePaths,
   type LogFilterMode,
 } from "./api";
+import { ContextMenu, type MenuItem, type MenuState } from "./ContextMenu";
 import { DiffView } from "./Diff";
 import { FilesViewToggle, FileTree, leafIndent, useFilesView } from "./FileTree";
 import { FileView } from "./FileView";
@@ -286,6 +292,9 @@ function App() {
   // Arrastre para reordenar pestañas: cuál se arrastra y sobre cuál está.
   const [dragRoot, setDragRoot] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState<string | null>(null);
+  // Menú contextual abierto (clic derecho en una rama, un commit o un tag).
+  const [menu, setMenu] = useState<MenuState | null>(null);
+  const closeMenu = useCallback(() => setMenu(null), []);
   // Token de generación POR repo: una carga lenta de una pestaña no puede
   // descartar el resultado fresco de otra (ni el suyo propio si se recarga).
   const gens = useRef<Map<string, number>>(new Map());
@@ -784,6 +793,83 @@ function App() {
     [reload, patchTab, failTab, refreshVolatile],
   );
 
+  // Operaciones sobre ramas/tags que no dejan el repo a medias: si fallan basta
+  // con mostrar el error (no hace falta `refreshVolatile`, a diferencia del merge).
+  const refOp = useCallback(
+    async (root: string, run: () => Promise<void>) => {
+      patchTab(root, { refBusy: true, error: null });
+      try {
+        await run();
+        patchTab(root, { refBusy: false });
+        await reload(root);
+      } catch (e) {
+        failTab(root, e);
+      }
+    },
+    [reload, patchTab, failTab],
+  );
+
+  const doCreateBranch = useCallback(
+    (root: string, at?: string) => {
+      const name = window
+        .prompt(
+          `Nombre de la rama nueva (se crea ${at ? "en este commit" : "en HEAD"} y se cambia a ella):`,
+        )
+        ?.trim();
+      if (name) void refOp(root, () => createBranch(root, name, at));
+    },
+    [refOp],
+  );
+
+  const doRenameBranch = useCallback(
+    (root: string, b: Branch) => {
+      const name = window.prompt(`Nuevo nombre para la rama "${b.name}":`, b.name)?.trim();
+      if (name && name !== b.name) void refOp(root, () => renameBranch(root, b.name, name));
+    },
+    [refOp],
+  );
+
+  const doDeleteBranch = useCallback(
+    (root: string, b: Branch) => {
+      if (!window.confirm(`¿Borrar la rama "${b.name}"? Solo la local; el remoto no se toca.`))
+        return;
+      void refOp(root, async () => {
+        try {
+          await deleteBranch(root, b.name, false);
+        } catch (e) {
+          // Solo este error se resuelve forzando: cualquier otro se muestra tal cual.
+          const forzar =
+            isGitError(e) &&
+            e.kind === "not_merged" &&
+            window.confirm(
+              `"${b.name}" tiene commits que no están en la rama actual y se perderían.\n\n¿Borrarla igualmente?`,
+            );
+          if (!forzar) throw e;
+          await deleteBranch(root, b.name, true);
+        }
+      });
+    },
+    [refOp],
+  );
+
+  const doCreateTag = useCallback(
+    (root: string, at?: string) => {
+      const name = window
+        .prompt(`Nombre del tag (se crea ${at ? "en este commit" : "en HEAD"}):`)
+        ?.trim();
+      if (name) void refOp(root, () => createTag(root, name, at));
+    },
+    [refOp],
+  );
+
+  const doDeleteTag = useCallback(
+    (root: string, name: string) => {
+      if (!window.confirm(`¿Borrar el tag "${name}"? Solo el local; el remoto no se toca.`)) return;
+      void refOp(root, () => deleteTag(root, name));
+    },
+    [refOp],
+  );
+
   const applyFilter = useCallback(
     (root: string, mode: LogFilterMode, query: string) => {
       patchTab(root, { filterMode: mode, filterQuery: query });
@@ -978,8 +1064,46 @@ function App() {
       ? [wipCommit(active.info!.head_hash!), ...active.commits]
       : (active?.commits ?? []);
 
+  const openMenu = (ev: React.MouseEvent, heading: string, items: MenuItem[]) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    setMenu({ x: ev.clientX, y: ev.clientY, heading, items });
+  };
+  // Con una operación a medias (conflicto) o en marcha solo quedan vivos
+  // Continuar/Abortar del banner: el resto de acciones del menú se apagan.
+  const menuBusy = !!active && (active.opState !== null || active.refBusy || active.rebasing);
+  const branchItems = (root: string, b: Branch, blocked: boolean): MenuItem[] => [
+    {
+      label: "Checkout",
+      disabled: blocked || b.is_head,
+      onSelect: () => void doCheckout(root, b.checkout_arg),
+    },
+    {
+      label: "Merge en la rama actual",
+      disabled: menuBusy || b.is_head,
+      onSelect: () => void doMerge(root, b),
+    },
+    ...(b.is_remote
+      ? []
+      : [
+          { label: "Renombrar…", disabled: menuBusy, onSelect: () => doRenameBranch(root, b) },
+          {
+            label: "Borrar…",
+            danger: true,
+            disabled: menuBusy || b.is_head,
+            title: b.is_head ? "No se puede borrar la rama activa" : undefined,
+            onSelect: () => doDeleteBranch(root, b),
+          },
+        ]),
+  ];
+  const commitItems = (root: string, c: Commit): MenuItem[] => [
+    { label: "Crear rama aquí…", disabled: menuBusy, onSelect: () => doCreateBranch(root, c.hash) },
+    { label: "Crear tag aquí…", disabled: menuBusy, onSelect: () => doCreateTag(root, c.hash) },
+  ];
+
   return (
     <div className="app" style={{ "--row-h": `${ROW_H}px` } as React.CSSProperties}>
+      {menu && <ContextMenu menu={menu} onClose={closeMenu} />}
       <header className="topbar">
         <button onClick={onPick} disabled={opening}>
           {opening ? "Abriendo…" : "Abrir repo…"}
@@ -1150,7 +1274,17 @@ function App() {
           <div {...panels.handleProps("left")} />
           <div {...panels.handleProps("right")} />
           <aside className="branches">
-            <h2>Ramas</h2>
+            <div className="branches-head">
+              <h2>Ramas</h2>
+              <button
+                title="Nueva rama en HEAD (o clic derecho en un commit para crearla ahí)"
+                aria-label="Nueva rama"
+                disabled={menuBusy}
+                onClick={() => doCreateBranch(active.root)}
+              >
+                ＋
+              </button>
+            </div>
             {(["local", "remote"] as const).map((group) => {
               const list = active.branches.filter((b) =>
                 group === "local" ? !b.is_remote : b.is_remote,
@@ -1183,6 +1317,9 @@ function App() {
                           }
                           onClick={() =>
                             !blocked && void doCheckout(active.root, b.checkout_arg)
+                          }
+                          onContextMenu={(ev) =>
+                            openMenu(ev, b.name, branchItems(active.root, b, blocked))
                           }
                         >
                           {b.is_head && <span className="dot">●</span>}
@@ -1337,6 +1474,12 @@ function App() {
                     <li
                       key={c.hash}
                       className={`commit${on ? " sel" : ""}`}
+                      onContextMenu={(ev) =>
+                        // El nodo //WIP no es un commit real: sin menú (y sin el nativo).
+                        c.hash === WIP_HASH
+                          ? ev.preventDefault()
+                          : openMenu(ev, `${c.short_hash} ${c.subject}`, commitItems(active.root, c))
+                      }
                       onClick={() => {
                         // Reclicar el commit ya seleccionado lo deselecciona:
                         // vuelve al panel "Cambios" (lo mismo que clicar el
@@ -1366,6 +1509,19 @@ function App() {
                             key={`${i}-${r.kind}-${r.name}${r.kind === "head" ? active.info?.head_hash : ""}`}
                             className={`ref ${r.kind}`}
                             title={r.kind === "tag" ? `tag ${r.name}` : r.name}
+                            onContextMenu={
+                              r.kind === "tag"
+                                ? (ev) =>
+                                    openMenu(ev, `tag ${r.name}`, [
+                                      {
+                                        label: "Borrar tag…",
+                                        danger: true,
+                                        disabled: menuBusy,
+                                        onSelect: () => doDeleteTag(active.root, r.name),
+                                      },
+                                    ])
+                                : undefined
+                            }
                           >
                             {r.name}
                           </span>
