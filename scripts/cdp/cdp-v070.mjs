@@ -220,24 +220,46 @@ try {
   const t2 = await rect(".tab:nth-child(2)");
   await mouseDrag({ x: t1.x + t1.w / 2, y: t1.y + t1.h / 2 }, { x: t2.x + t2.w * 0.8, y: t2.y + t2.h / 2 });
   let order = await names();
-  let usedSynthetic = false;
+  let how = "arrastre real con ratón";
   if (JSON.stringify(order) !== JSON.stringify(["repoB", "repoA"])) {
-    // El ratón de CDP no siempre inicia un drag nativo: se cae al evento sintético
-    // (prueba la lógica de React, NO el flag `dragDropEnabled` de Tauri).
-    usedSynthetic = true;
-    await ev(`(() => {
-      const tabs = document.querySelectorAll('.tab');
-      const dt = new DataTransfer();
-      tabs[0].dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt }));
-      tabs[1].dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: dt }));
-      tabs[1].dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: dt }));
-      tabs[0].dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: dt }));
-      return 1; })()`);
+    // El ratón de CDP no arranca un drag nativo por sí solo. Chromium sí lo
+    // arranca (draggable=true) y CDP lo intercepta: se reinyecta con
+    // Input.dispatchDragEvent. Cubre la lógica de React y el `draggable`, pero
+    // NO el flag `dragDropEnabled` de Tauri/wry (esa capa va por debajo de CDP).
+    how = "drag NATIVO interceptado por CDP (no cubre dragDropEnabled de Tauri)";
+    let dragData = null;
+    const onIntercept = (e) => {
+      const m = JSON.parse(e.data);
+      if (m.method === "Input.dragIntercepted") dragData = m.params.data;
+    };
+    ws.addEventListener("message", onIntercept);
+    await send("Input.setInterceptDrags", { enabled: true });
+    const a = await rect(".tab:nth-child(1)");
+    const b = await rect(".tab:nth-child(2)");
+    const from = { x: a.x + a.w / 2, y: a.y + a.h / 2 };
+    const to = { x: b.x + b.w * 0.8, y: b.y + b.h / 2 };
+    await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: from.x, y: from.y });
+    await send("Input.dispatchMouseEvent", { type: "mousePressed", x: from.x, y: from.y, button: "left", clickCount: 1 });
+    await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: from.x + 15, y: from.y, button: "left", buttons: 1 });
+    await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: from.x + 30, y: from.y, button: "left", buttons: 1 });
+    await sleep(400);
+    if (dragData) {
+      for (const type of ["dragEnter", "dragOver"]) {
+        await send("Input.dispatchDragEvent", { type, x: to.x, y: to.y, data: dragData });
+        await sleep(150);
+      }
+      await send("Input.dispatchDragEvent", { type: "drop", x: to.x, y: to.y, data: dragData });
+      await sleep(300);
+    } else {
+      how = "SIN arrastre: Chromium no llegó a iniciar el drag (¿draggable roto?)";
+    }
+    await send("Input.dispatchMouseEvent", { type: "mouseReleased", x: to.x, y: to.y, button: "left", clickCount: 1 }).catch(() => {});
+    await send("Input.setInterceptDrags", { enabled: false });
+    ws.removeEventListener("message", onIntercept);
     await sleep(300);
     order = await names();
   }
-  check("arrastrar repoA sobre repoB los reordena", JSON.stringify(order) === JSON.stringify(["repoB", "repoA"]),
-    usedSynthetic ? "evento SINTÉTICO — el arrastre real con ratón no se disparó" : "arrastre real con ratón");
+  check("arrastrar repoA sobre repoB los reordena", JSON.stringify(order) === JSON.stringify(["repoB", "repoA"]), how);
   check("la pestaña activa sigue siendo repoA", (await ev("document.querySelector('.tab.active .tab-name')?.textContent")) === "repoA");
   check("el orden se persiste", (await ev("localStorage.getItem('gitpad:tabs')")) === JSON.stringify([rootB, rootA]));
 
@@ -254,10 +276,23 @@ try {
   check("el ancho se persiste tras recargar", Math.abs((await rect(".branches")).w - 280) <= 2);
   const hl = await rect(".resizer-left");
   await mouseDrag({ x: hl.x + hl.w / 2, y: hl.y + 200 }, { x: hl.x + hl.w / 2 + 900, y: hl.y + 200 });
-  check("no pasa del máximo (360)", Math.round((await rect(".branches")).w) === 360, `${(await rect(".branches")).w}`);
+  // Tope = min(360, lo que deje libre la ventana con el derecho intacto).
+  const winW0 = await ev("window.innerWidth");
+  const rightW0 = (await rect(".status")).w;
+  const expLeft = Math.min(360, winW0 - 480 - rightW0);
+  const leftMax = (await rect(".branches")).w;
+  check("izquierdo al máximo: llega al tope que permite la ventana", Math.abs(leftMax - expLeft) <= 2, `${leftMax} vs ${expLeft} (ventana ${winW0})`);
+  check("… sin encoger el panel derecho", Math.abs((await rect(".status")).w - 280) <= 2, `${(await rect(".status")).w}`);
   const hr = await rect(".resizer-right");
   await mouseDrag({ x: hr.x + hr.w / 2, y: hr.y + 200 }, { x: hr.x + hr.w / 2 - 900, y: hr.y + 200 });
-  check("panel derecho no pasa de su máximo (560)", Math.round((await rect(".status")).w) === 560, `${(await rect(".status")).w}`);
+  // Tope = min(560, lo que deje libre la ventana): 480 px de centro intocables
+  // y el panel izquierdo (360 tras el paso anterior) NO cede al arrastrar el derecho.
+  const winW = await ev("window.innerWidth");
+  const leftNow = (await rect(".branches")).w;
+  const expRight = Math.min(560, winW - 480 - leftNow);
+  const rightNow = (await rect(".status")).w;
+  check("arrastrar el derecho al máximo: llega al tope que permite la ventana", Math.abs(rightNow - expRight) <= 2, `${rightNow} vs ${expRight} (ventana ${winW})`);
+  check("… sin encoger el panel izquierdo", Math.abs(leftNow - leftMax) <= 2, `${leftNow} (antes ${leftMax})`);
   // Anchos guardados a pantalla grande, app abierta pequeña: el diff no puede quedar a 0.
   await ev("localStorage.setItem('gitpad:panels', JSON.stringify({left: 360, right: 560})); 1");
   await send("Emulation.setDeviceMetricsOverride", { width: 900, height: 700, deviceScaleFactor: 1, mobile: false });
@@ -328,7 +363,9 @@ try {
   await waitFor("document.querySelector('.diffpane .diff-empty') ? 1 : null");
   check("archivo binario: mensaje, sin volcar basura", (await ev("document.querySelector('.diffpane .diff-empty').textContent")).includes("binario"));
   // Contenido en el commit seleccionado, no en HEAD: `app.ts` tenía 1 línea en «inicial».
-  await ev("Array.from(document.querySelectorAll('.status .tree-dir')).find(d => d.textContent.includes('src') && !d.textContent.includes('lib'))?.click(); 1");
+  // `src` ya está abierta por el paso anterior: solo se abre si está plegada.
+  await ev(`(() => { const d = Array.from(document.querySelectorAll('.status .tree-dir')).find(d => d.textContent.trim() === 'src');
+    if (d && d.getAttribute('aria-expanded') === 'false') d.click(); return 1; })()`);
   await sleep(200);
   await ev("Array.from(document.querySelectorAll('.status .entry')).find(e => e.textContent === 'app.ts')?.click(); 1");
   await waitFor("document.querySelector('.fileview-path')?.textContent === 'src/app.ts' ? 1 : null");

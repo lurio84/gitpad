@@ -94,6 +94,14 @@ interface Props<T> {
 }
 
 const INDENT = 14;
+/** Ancho del triángulo de una carpeta + su hueco (`.tree-caret` 10 + gap 4). */
+const CARET_SLOT = 14;
+
+/** `padding-left` de una hoja a profundidad `depth`: alineada con el NOMBRE de
+ * las carpetas de su nivel, no con su triángulo. */
+export function leafIndent(depth: number): number {
+  return 8 + depth * INDENT + CARET_SLOT;
+}
 
 export function FileTree<T>({ items, getPath, defaultOpen, renderLeaf }: Props<T>) {
   // Solo se guardan las carpetas que el usuario ha invertido respecto al

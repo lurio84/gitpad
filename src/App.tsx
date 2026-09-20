@@ -32,7 +32,7 @@ import {
   type LogFilterMode,
 } from "./api";
 import { DiffView } from "./Diff";
-import { FilesViewToggle, FileTree, useFilesView } from "./FileTree";
+import { FilesViewToggle, FileTree, leafIndent, useFilesView } from "./FileTree";
 import { FileView } from "./FileView";
 import { Graph, ROW_H, WIP_HASH } from "./Graph";
 import { usePanels } from "./usePanels";
@@ -1454,7 +1454,7 @@ function App() {
                           <li
                             key={p}
                             className={`entry${on ? " sel" : ""}`}
-                            style={{ paddingLeft: 8 + depth * 14 }}
+                            style={{ paddingLeft: leafIndent(depth) }}
                             onClick={() => {
                               const sameCommit = sel?.t === "commit" && sel.hash === treeTarget;
                               const isMerge =
@@ -1523,7 +1523,9 @@ function App() {
                       <li
                         key={cf.path}
                         className={`entry${on ? " sel" : ""}`}
-                        style={depth > 0 ? { paddingLeft: 8 + depth * 14 } : undefined}
+                        style={
+                          filesView === "tree" ? { paddingLeft: leafIndent(depth) } : undefined
+                        }
                         onClick={() =>
                           sel?.t === "commit" &&
                           void loadDiff(active.root, {

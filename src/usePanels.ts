@@ -28,16 +28,17 @@ function clampOne(v: number, side: Side): number {
   return Math.min(MAX[side], Math.max(MIN[side], Math.round(v)));
 }
 
-/** Ancho efectivo de cada panel para una ventana de `total` px. `prefer` es el
- * panel que se está arrastrando: si no caben los dos, cede el OTRO primero. */
-export function clampPanels(w: Widths, total: number, prefer: Side | null): Widths {
+/** Ancho efectivo de cada panel para una ventana de `total` px. `drag` es el
+ * panel que se está arrastrando: si no caben los dos, cede ESE primero (se topa
+ * contra el hueco que queda) y el otro no se mueve solo. */
+export function clampPanels(w: Widths, total: number, drag: Side | null): Widths {
   let left = clampOne(w.left, "left");
   let right = clampOne(w.right, "right");
   let overflow = left + right - (total - CENTER_MIN);
   if (overflow > 0) {
-    // Cede primero el que no se arrastra (por defecto el derecho, que tiene más
-    // recorrido), luego el que se arrastra, siempre hasta su mínimo.
-    const order: Side[] = prefer === "right" ? ["left", "right"] : ["right", "left"];
+    // Sin arrastre (ventana que se achica, ancho guardado en otra pantalla)
+    // cede primero el derecho, que tiene más recorrido. Siempre hasta su mínimo.
+    const order: Side[] = drag === "left" ? ["left", "right"] : ["right", "left"];
     for (const side of order) {
       const cur = side === "left" ? left : right;
       const cut = Math.min(overflow, cur - MIN[side]);
