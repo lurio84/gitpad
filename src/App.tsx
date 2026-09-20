@@ -10,11 +10,13 @@ import {
   getCommitFileDiff,
   getCommitFiles,
   getDefaultBase,
+  getFileContent,
   getFileDiff,
   getLog,
   getOpState,
   getStashes,
   getStatus,
+  getTreeFiles,
   opAbort,
   opContinue,
   openRepo,
@@ -30,11 +32,15 @@ import {
   type LogFilterMode,
 } from "./api";
 import { DiffView } from "./Diff";
+import { FilesViewToggle, FileTree, useFilesView } from "./FileTree";
+import { FileView } from "./FileView";
 import { Graph, ROW_H, WIP_HASH } from "./Graph";
+import { usePanels } from "./usePanels";
 import type {
   Branch,
   Commit,
   CommitFile,
+  FileContent,
   GitError,
   OpState,
   RepoInfo,
@@ -92,13 +98,23 @@ const LEGACY_REPO_KEY = "gitpad:last-repo";
 
 /** Qué se está mirando en el panel de diff de una pestaña. */
 type Selection =
-  | { t: "commit"; hash: string; isMerge?: boolean; file?: string; origPath?: string }
+  | {
+      t: "commit";
+      hash: string;
+      isMerge?: boolean;
+      file?: string;
+      origPath?: string;
+      /** `content` = el archivo entero en ese commit (explorador «Todos los
+       * archivos»); sin marca, su diff. Cuenta para `sameSelection`: si no,
+       * el diff que llega tarde pisaría al visor del mismo archivo. */
+      view?: "content";
+    }
   | { t: "file"; path: string; staged: boolean; untracked?: boolean };
 
 function sameSelection(a: Selection | null, b: Selection | null): boolean {
   if (a === null || b === null) return a === b;
   if (a.t === "commit" && b.t === "commit")
-    return a.hash === b.hash && a.file === b.file;
+    return a.hash === b.hash && a.file === b.file && a.view === b.view;
   if (a.t === "file" && b.t === "file")
     return a.path === b.path && a.staged === b.staged;
   return false;
@@ -117,8 +133,20 @@ interface Tab {
   /** Archivos del commit seleccionado (vacío si es un merge o no hay commit). */
   commitFiles: CommitFile[];
   commitFilesLoading: boolean;
-  commitMsg: string;
+  /** Qué lista muestra el panel derecho: los cambios (de un commit o del árbol
+   * de trabajo) o todos los archivos del proyecto en ese commit. */
+  filesScope: "changes" | "all";
+  /** Árbol completo del commit `treeHash` (`null` = aún sin pedir). */
+  treePaths: string[];
+  treeHash: string | null;
+  treeLoading: boolean;
+  content: FileContent | null;
+  contentLoading: boolean;
+  commitSubject: string;
+  commitBody: string;
   amend: boolean;
+  /** Lo escrito antes de marcar amend, para restaurarlo al desmarcar. */
+  amendDraft: { subject: string; body: string } | null;
   committing: boolean;
   /** Qué operación de red está en curso, o `null` si ninguna. */
   remoting: "fetch" | "pull" | "push" | null;
@@ -156,8 +184,16 @@ function emptyTab(root: string): Tab {
     diffLoading: false,
     commitFiles: [],
     commitFilesLoading: false,
-    commitMsg: "",
+    filesScope: "changes",
+    treePaths: [],
+    treeHash: null,
+    treeLoading: false,
+    content: null,
+    contentLoading: false,
+    commitSubject: "",
+    commitBody: "",
     amend: false,
+    amendDraft: null,
     committing: false,
     remoting: null,
     opState: null,
@@ -240,6 +276,8 @@ function restoreRoots(): string[] {
 
 function App() {
   const [tabs, setTabs] = useState<Tab[]>([]);
+  const [filesView, setFilesView] = useFilesView();
+  const panels = usePanels();
   const [activeRoot, setActiveRoot] = useState<string | null>(null);
   // Trazado del grafo (momento firma): solo tras una acción del usuario (abrir
   // un repo, cambiar de pestaña) y en el arranque — nunca en un refresco.
@@ -252,6 +290,9 @@ function App() {
   // corto no cuelga de ninguna pestaña, así que su estado va aparte.
   const [opening, setOpening] = useState(false);
   const [openError, setOpenError] = useState<string | null>(null);
+  // Arrastre para reordenar pestañas: cuál se arrastra y sobre cuál está.
+  const [dragRoot, setDragRoot] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState<string | null>(null);
   // Token de generación POR repo: una carga lenta de una pestaña no puede
   // descartar el resultado fresco de otra (ni el suyo propio si se recarga).
   const gens = useRef<Map<string, number>>(new Map());
@@ -354,11 +395,44 @@ function App() {
   );
 
   const loadDiff = useCallback(async (root: string, sel: Selection) => {
+    const asContent = sel.t === "commit" && sel.view === "content";
     setTabs((ts) =>
       ts.map((t) =>
-        t.root === root ? { ...t, sel, diff: null, diffLoading: true } : t,
+        t.root === root
+          ? {
+              ...t,
+              sel,
+              diff: null,
+              diffLoading: !asContent,
+              content: null,
+              contentLoading: asContent,
+            }
+          : t,
       ),
     );
+    // Explorador «Todos los archivos»: el archivo entero en ese commit, no su diff.
+    if (sel.t === "commit" && sel.view === "content" && sel.file) {
+      try {
+        const content = await getFileContent(root, sel.hash, sel.file);
+        setTabs((ts) =>
+          ts.map((t) =>
+            t.root === root && sameSelection(t.sel, sel)
+              ? { ...t, content, contentLoading: false }
+              : t,
+          ),
+        );
+      } catch (e) {
+        const msg = isGitError(e) ? e.message : String(e);
+        setTabs((ts) =>
+          ts.map((t) =>
+            t.root === root && sameSelection(t.sel, sel)
+              ? { ...t, content: null, contentLoading: false, error: msg }
+              : t,
+          ),
+        );
+      }
+      return;
+    }
     // Un archivo sin seguir no tiene con qué compararse: no se llama a git. Un
     // commit de fusión sí: el backend lo compara contra su primer padre.
     if (sel.t === "file" && sel.untracked) {
@@ -429,6 +503,36 @@ function App() {
     },
     [],
   );
+
+  /** Pide el árbol completo de un commit. `treeHash` se fija al pedir (no al
+   * recibir) para que el efecto que lo dispara no lo repita en bucle, y el
+   * resultado solo se aplica si el árbol pedido sigue siendo ese. */
+  const loadTree = useCallback(async (root: string, hash: string) => {
+    setTabs((ts) =>
+      ts.map((t) =>
+        t.root === root ? { ...t, treeHash: hash, treeLoading: true, treePaths: [] } : t,
+      ),
+    );
+    try {
+      const paths = await getTreeFiles(root, hash);
+      setTabs((ts) =>
+        ts.map((t) =>
+          t.root === root && t.treeHash === hash
+            ? { ...t, treePaths: paths, treeLoading: false }
+            : t,
+        ),
+      );
+    } catch (e) {
+      const msg = isGitError(e) ? e.message : String(e);
+      setTabs((ts) =>
+        ts.map((t) =>
+          t.root === root && t.treeHash === hash
+            ? { ...t, treePaths: [], treeLoading: false, error: msg }
+            : t,
+        ),
+      );
+    }
+  }, []);
 
   const patchTab = useCallback((root: string, patch: Partial<Tab>) => {
     setTabs((ts) => ts.map((t) => (t.root === root ? { ...t, ...patch } : t)));
@@ -515,13 +619,21 @@ function App() {
   );
 
   const doCommit = useCallback(
-    async (root: string, message: string, amend: boolean) => {
-      if (!message.trim()) return;
+    async (root: string, subject: string, body: string, amend: boolean) => {
+      if (!subject.trim()) return;
       if (amend && !window.confirm("¿Reescribir el último commit?")) return;
+      // Sin descripción se manda solo el resumen: nada de líneas en blanco de más.
+      const message = body.trim() ? `${subject.trim()}\n\n${body.trim()}` : subject.trim();
       patchTab(root, { committing: true, error: null });
       try {
         await commitRepo(root, message, amend);
-        patchTab(root, { commitMsg: "", committing: false });
+        patchTab(root, {
+          commitSubject: "",
+          commitBody: "",
+          amend: false,
+          amendDraft: null,
+          committing: false,
+        });
         await reload(root);
       } catch (e) {
         failTab(root, e);
@@ -802,7 +914,29 @@ function App() {
     }
   };
 
+  /** Mueve la pestaña `from` a la posición de `to`. `activeRoot` se identifica
+   * por ruta, no por índice, así que reordenar no cambia la pestaña activa. */
+  const moveTab = (from: string, to: string) => {
+    const fi = tabs.findIndex((t) => t.root === from);
+    const ti = tabs.findIndex((t) => t.root === to);
+    if (fi < 0 || ti < 0 || fi === ti) return;
+    const next = [...tabs];
+    const [moved] = next.splice(fi, 1);
+    next.splice(ti, 0, moved);
+    setTabs(next);
+    persistTabs(next);
+  };
+
   const active = tabs.find((t) => t.root === activeRoot) ?? null;
+
+  // «Todos los archivos»: el árbol es el del commit seleccionado, o el de HEAD
+  // si no hay ninguno (árbol de trabajo). Se (re)pide al cambiar ese objetivo.
+  const treeTarget =
+    active?.sel?.t === "commit" ? active.sel.hash : (active?.info?.head_hash ?? null);
+  useEffect(() => {
+    if (active && active.filesScope === "all" && treeTarget && treeTarget !== active.treeHash)
+      void loadTree(active.root, treeTarget);
+  }, [active?.root, active?.filesScope, active?.treeHash, treeTarget, loadTree]);
 
   useEffect(() => {
     if (introPending.current && active && !active.loading && active.commits.length > 0) {
@@ -948,9 +1082,33 @@ function App() {
           {tabs.map((t) => (
             <div
               key={t.root}
-              className={`tab${t.root === activeRoot ? " active" : ""}`}
+              className={`tab${t.root === activeRoot ? " active" : ""}${
+                dragOver === t.root && dragRoot !== t.root ? " drop-target" : ""
+              }${dragRoot === t.root ? " dragging" : ""}`}
               onClick={() => selectTab(t.root)}
               title={t.root}
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.effectAllowed = "move";
+                e.dataTransfer.setData("text/plain", t.root);
+                setDragRoot(t.root);
+              }}
+              onDragOver={(e) => {
+                if (dragRoot === null) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+                if (dragOver !== t.root) setDragOver(t.root);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                if (dragRoot !== null) moveTab(dragRoot, t.root);
+                setDragRoot(null);
+                setDragOver(null);
+              }}
+              onDragEnd={() => {
+                setDragRoot(null);
+                setDragOver(null);
+              }}
             >
               <span className="tab-name">{basename(t.root)}</span>
               {t.loading && <span className="tab-spin" aria-hidden="true" />}
@@ -977,7 +1135,9 @@ function App() {
       {active?.error && !active.opState && <div className="error">{active.error}</div>}
 
       {active && (
-        <div className="body">
+        <div className="body" ref={panels.bodyRef} style={panels.style}>
+          <div {...panels.handleProps("left")} />
+          <div {...panels.handleProps("right")} />
           <aside className="branches">
             <h2>Ramas</h2>
             {(["local", "remote"] as const).map((group) => {
@@ -1219,19 +1379,110 @@ function App() {
           </section>
 
           <section className="diffpane">
-            <DiffView
-              raw={active.diff}
-              loading={active.diffLoading}
-              note={
-                active.sel?.t === "file" && active.sel.untracked
-                  ? "Archivo sin seguir — todavía no hay nada que comparar."
-                  : undefined
-              }
-            />
+            {active.sel?.t === "commit" && active.sel.view === "content" && active.sel.file ? (
+              <FileView
+                path={active.sel.file}
+                content={active.content}
+                loading={active.contentLoading}
+              />
+            ) : (
+              <DiffView
+                raw={active.diff}
+                loading={active.diffLoading}
+                note={
+                  active.sel?.t === "file" && active.sel.untracked
+                    ? "Archivo sin seguir — todavía no hay nada que comparar."
+                    : undefined
+                }
+              />
+            )}
           </section>
 
           <aside className="status">
-            {active.sel?.t === "commit" ? (
+            <div className="diff-toolbar files-toggle" role="group" aria-label="Qué archivos mostrar">
+              <button
+                className={active.filesScope === "changes" ? "on" : ""}
+                onClick={() => patchTab(active.root, { filesScope: "changes" })}
+              >
+                Cambios
+              </button>
+              <button
+                className={active.filesScope === "all" ? "on" : ""}
+                onClick={() => patchTab(active.root, { filesScope: "all" })}
+              >
+                Todos los archivos
+              </button>
+            </div>
+            {active.filesScope === "all" ? (
+              <>
+                {(() => {
+                  const sel = active.sel;
+                  if (sel?.t !== "commit") return null;
+                  const c = active.commits.find((cm) => cm.hash === sel.hash);
+                  return c ? (
+                    <div className="commit-message">
+                      <p className="commit-subject">{c.subject}</p>
+                      {c.body && <p className="commit-body">{c.body}</p>}
+                    </div>
+                  ) : null;
+                })()}
+                <h2>
+                  {active.sel?.t === "commit"
+                    ? "Todos los archivos en este commit"
+                    : "Todos los archivos en HEAD"}
+                </h2>
+                {!treeTarget ? (
+                  <p className="clean">Este repo aún no tiene commits.</p>
+                ) : active.treeLoading || active.treeHash !== treeTarget ? (
+                  <div className="skeleton" role="status" aria-label="Cargando archivos">
+                    {[80, 60, 72].map((w, i) => (
+                      <span key={i} className="skel-bar" style={{ width: `${w}%` }} />
+                    ))}
+                  </div>
+                ) : active.treePaths.length === 0 ? (
+                  <p className="clean">Sin archivos.</p>
+                ) : (
+                  <div className="tree-scroll">
+                    <FileTree
+                      items={active.treePaths}
+                      getPath={(p) => p}
+                      defaultOpen={false}
+                      renderLeaf={(p, name, depth) => {
+                        const sel = active.sel;
+                        const on = sel?.t === "commit" && sel.view === "content" && sel.file === p;
+                        return (
+                          <li
+                            key={p}
+                            className={`entry${on ? " sel" : ""}`}
+                            style={{ paddingLeft: 8 + depth * 14 }}
+                            onClick={() => {
+                              const sameCommit = sel?.t === "commit" && sel.hash === treeTarget;
+                              const isMerge =
+                                (active.commits.find((c) => c.hash === treeTarget)?.parents
+                                  .length ?? 0) > 1;
+                              void loadDiff(active.root, {
+                                t: "commit",
+                                hash: treeTarget,
+                                isMerge,
+                                file: p,
+                                view: "content",
+                              });
+                              // Al saltar del árbol de trabajo a HEAD, «Cambios» debe
+                              // encontrar ya la lista de archivos de ese commit.
+                              if (!sameCommit) void loadCommitFiles(active.root, treeTarget);
+                            }}
+                          >
+                            <span className="path" title={p}>
+                              {name}
+                            </span>
+                          </li>
+                        );
+                      }}
+                    />
+                  </div>
+                )}
+              </>
+            ) : active.sel?.t === "commit" ? (
               <>
                 {(() => {
                   const sel = active.sel;
@@ -1258,36 +1509,63 @@ function App() {
                 {!active.commitFilesLoading && active.commitFiles.length === 0 && (
                   <p className="clean">Sin archivos.</p>
                 )}
-                <ul>
-                  {!active.commitFilesLoading &&
-                    active.commitFiles.map((cf) => {
-                      const sel = active.sel;
-                      const on = sel?.t === "commit" && sel.file === cf.path;
-                      return (
-                        <li
-                          key={cf.path}
-                          className={`entry${on ? " sel" : ""}`}
-                          onClick={() =>
-                            sel?.t === "commit" &&
-                            void loadDiff(active.root, {
-                              t: "commit",
-                              hash: sel.hash,
-                              isMerge: sel.isMerge,
-                              file: cf.path,
-                              origPath: cf.orig_path ?? undefined,
-                            })
-                          }
-                        >
-                          <span className="xy">
-                            <span className="xc hit">{cf.status[0]}</span>
-                          </span>
-                          <span className="path">
-                            {cf.orig_path ? `${cf.orig_path} → ${cf.path}` : cf.path}
-                          </span>
-                        </li>
-                      );
-                    })}
-                </ul>
+                {!active.commitFilesLoading && active.commitFiles.length > 0 && (
+                  <FilesViewToggle view={filesView} onChange={setFilesView} />
+                )}
+                {(() => {
+                  if (active.commitFilesLoading) return null;
+                  const sel = active.sel;
+                  // Una hoja del listado: igual en lista y en árbol; solo cambia
+                  // la etiqueta (ruta completa vs. nombre) y la sangría.
+                  const leaf = (cf: CommitFile, label: string, depth: number) => {
+                    const on = sel?.t === "commit" && sel.file === cf.path;
+                    return (
+                      <li
+                        key={cf.path}
+                        className={`entry${on ? " sel" : ""}`}
+                        style={depth > 0 ? { paddingLeft: 8 + depth * 14 } : undefined}
+                        onClick={() =>
+                          sel?.t === "commit" &&
+                          void loadDiff(active.root, {
+                            t: "commit",
+                            hash: sel.hash,
+                            isMerge: sel.isMerge,
+                            file: cf.path,
+                            origPath: cf.orig_path ?? undefined,
+                          })
+                        }
+                      >
+                        <span className="xy">
+                          <span className="xc hit">{cf.status[0]}</span>
+                        </span>
+                        <span className="path" title={cf.path}>
+                          {label}
+                          {filesView === "tree" && cf.orig_path && (
+                            <span className="tree-orig"> ← {cf.orig_path}</span>
+                          )}
+                        </span>
+                      </li>
+                    );
+                  };
+                  return filesView === "tree" ? (
+                    <FileTree
+                      items={active.commitFiles}
+                      getPath={(cf) => cf.path}
+                      defaultOpen
+                      renderLeaf={leaf}
+                    />
+                  ) : (
+                    <ul>
+                      {active.commitFiles.map((cf) =>
+                        leaf(
+                          cf,
+                          cf.orig_path ? `${cf.orig_path} → ${cf.path}` : cf.path,
+                          0,
+                        ),
+                      )}
+                    </ul>
+                  );
+                })()}
               </>
             ) : (
               <>
@@ -1508,24 +1786,61 @@ function App() {
                 className="commitbox"
                 onSubmit={(ev) => {
                   ev.preventDefault();
-                  void doCommit(active.root, active.commitMsg, active.amend);
+                  void doCommit(
+                    active.root,
+                    active.commitSubject,
+                    active.commitBody,
+                    active.amend,
+                  );
                 }}
               >
+                <input
+                  type="text"
+                  className="commit-subject-input"
+                  placeholder="Resumen"
+                  value={active.commitSubject}
+                  onChange={(ev) =>
+                    patchTab(active.root, { commitSubject: ev.target.value })
+                  }
+                />
                 <textarea
-                  placeholder="Mensaje del commit"
-                  value={active.commitMsg}
+                  placeholder="Descripción (opcional)"
+                  value={active.commitBody}
                   rows={3}
                   onChange={(ev) =>
-                    patchTab(active.root, { commitMsg: ev.target.value })
+                    patchTab(active.root, { commitBody: ev.target.value })
                   }
                 />
                 <label className="amend">
                   <input
                     type="checkbox"
                     checked={active.amend}
-                    onChange={(ev) =>
-                      patchTab(active.root, { amend: ev.target.checked })
-                    }
+                    onChange={(ev) => {
+                      if (ev.target.checked) {
+                        // Precarga resumen y descripción del commit que se
+                        // reescribe: sin esto amend pierde el cuerpo en silencio.
+                        const head = active.commits.find(
+                          (c) => c.hash === active.info?.head_hash,
+                        );
+                        patchTab(active.root, {
+                          amend: true,
+                          amendDraft: {
+                            subject: active.commitSubject,
+                            body: active.commitBody,
+                          },
+                          ...(head
+                            ? { commitSubject: head.subject, commitBody: head.body }
+                            : {}),
+                        });
+                      } else {
+                        patchTab(active.root, {
+                          amend: false,
+                          amendDraft: null,
+                          commitSubject: active.amendDraft?.subject ?? "",
+                          commitBody: active.amendDraft?.body ?? "",
+                        });
+                      }
+                    }}
                   />
                   Reescribir el último (amend)
                 </label>
@@ -1533,7 +1848,9 @@ function App() {
                   type="submit"
                   className={busyClass(active.committing)}
                   disabled={
-                    active.committing || !active.commitMsg.trim() || active.opState !== null
+                    active.committing ||
+                    !active.commitSubject.trim() ||
+                    active.opState !== null
                   }
                 >
                   {active.amend ? "Amend" : "Commit"}
