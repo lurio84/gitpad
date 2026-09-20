@@ -7,6 +7,12 @@ export interface RepoInfo {
   head_hash: string | null;
 }
 
+/** Ref que decora un commit. `head` = la rama activa; `other` p. ej. `refs/stash`. */
+export interface RefChip {
+  name: string;
+  kind: "head" | "local" | "remote" | "tag" | "other";
+}
+
 export interface Commit {
   hash: string;
   short_hash: string;
@@ -15,7 +21,7 @@ export interface Commit {
   author_email: string;
   date: string;
   subject: string;
-  refs: string[];
+  refs: RefChip[];
   body: string;
 }
 

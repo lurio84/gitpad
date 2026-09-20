@@ -29,11 +29,19 @@ pub struct Commit {
     /// Fecha de autoría en ISO 8601 estricto.
     pub date: String,
     pub subject: String,
-    /// Nombres de refs que apuntan a este commit (ramas, tags, HEAD).
-    pub refs: Vec<String>,
+    /// Refs que apuntan a este commit (ramas, tags), ya con su tipo.
+    pub refs: Vec<RefChip>,
     /// Cuerpo del mensaje (todo lo que sigue al asunto), sin saltos de línea
     /// finales. Vacío si el commit no tiene cuerpo.
     pub body: String,
+}
+
+/// Una ref decorando un commit. `kind`: `"head"` (la rama activa), `"local"`,
+/// `"remote"`, `"tag"` u `"other"` (p. ej. `refs/stash`).
+#[derive(Debug, Serialize)]
+pub struct RefChip {
+    pub name: String,
+    pub kind: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -176,7 +184,7 @@ pub fn log(
         "log".to_string(),
         branch.unwrap_or("--all").to_string(),
         "--date-order".to_string(),
-        "--decorate=short".to_string(),
+        "--decorate=full".to_string(),
         "-z".to_string(),
         fmt,
     ];
@@ -230,18 +238,32 @@ pub fn log(
     Ok(commits)
 }
 
-/// `%D` produce algo como "HEAD -> master, origin/master, tag: v1.0", o
-/// "HEAD, tag: v1.0" con HEAD desprendido — ahí "HEAD" va suelto, sin
-/// prefijo que quitar. Se descarta: ya se muestra aparte en la topbar.
-fn parse_refs(raw: &str) -> Vec<String> {
+/// `%D` con `--decorate=full` produce algo como
+/// "HEAD -> refs/heads/master, refs/remotes/origin/master, tag: refs/tags/v1.0",
+/// o "HEAD, tag: refs/tags/v1.0" con HEAD desprendido — ahí "HEAD" va suelto y
+/// se descarta: ya se muestra aparte en la topbar. Con `short` una rama y un tag
+/// homónimos salían ambos como `v1` y el tipo había que deducirlo (mal) en el
+/// frontend; con `full` cada ref trae su tipo y no hay ambigüedad, tampoco entre
+/// una rama local con `/` (`feature/x`) y una remota (`origin/x`).
+fn parse_refs(raw: &str) -> Vec<RefChip> {
+    let chip = |name: &str, kind: &str| RefChip { name: name.to_string(), kind: kind.to_string() };
     raw.split(", ")
         .map(str::trim)
         .filter(|s| !s.is_empty() && *s != "HEAD")
         .map(|s| {
-            s.strip_prefix("HEAD -> ")
-                .or_else(|| s.strip_prefix("tag: "))
-                .unwrap_or(s)
-                .to_string()
+            let (s, is_head) = match s.strip_prefix("HEAD -> ") {
+                Some(r) => (r, true),
+                None => (s, false),
+            };
+            if let Some(n) = s.strip_prefix("tag: refs/tags/") {
+                chip(n, "tag")
+            } else if let Some(n) = s.strip_prefix("refs/heads/") {
+                chip(n, if is_head { "head" } else { "local" })
+            } else if let Some(n) = s.strip_prefix("refs/remotes/") {
+                chip(n, "remote")
+            } else {
+                chip(s, "other")
+            }
         })
         .collect()
 }
@@ -1028,6 +1050,6 @@ pub(super) fn parse_branch_lines_for_test(raw: &str) -> GitResult<Vec<Branch>> {
 }
 
 #[cfg(test)]
-pub(super) fn parse_refs_for_test(raw: &str) -> Vec<String> {
+pub(super) fn parse_refs_for_test(raw: &str) -> Vec<RefChip> {
     parse_refs(raw)
 }

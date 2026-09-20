@@ -1695,20 +1695,105 @@ fn smoke_repo_real() {
     }
 }
 
+/// Lo mismo, pero pasando por `git log` de verdad (no por una cadena escrita a
+/// mano): una rama y un tag `v1` en el mismo commit salen como dos chips.
 #[test]
-fn refs_se_limpian_los_prefijos() {
-    use super::repo::parse_refs_for_test as parse_refs;
-    let r = parse_refs("HEAD -> master, origin/master, tag: v1.0");
-    assert_eq!(r, vec!["master", "origin/master", "v1.0"]);
+fn log_real_distingue_tag_y_rama_homonimos() {
+    use std::process::Command;
+
+    let dir = std::env::temp_dir().join(format!(
+        "gitpad-homo-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let _guard = scopeguard(&dir);
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .args(args)
+            .current_dir(&dir)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    };
+    if !git(&["init", "-q", "-b", "master"]) {
+        eprintln!("git no disponible, se salta el test");
+        return;
+    }
+    git(&["config", "user.email", "t@t"]);
+    git(&["config", "user.name", "t"]);
+    std::fs::write(dir.join("a.txt"), "1\n").unwrap();
+    git(&["add", "-A"]);
+    git(&["commit", "-q", "-m", "c1"]);
+    git(&["branch", "v1"]);
+    git(&["tag", "v1"]);
+    git(&["branch", "feature/x"]);
+
+    let log = super::repo::log(&dir, 0, 5, &super::repo::LogFilter::None, None).expect("log");
+    let mut got: Vec<(String, String)> =
+        log[0].refs.iter().map(|c| (c.name.clone(), c.kind.clone())).collect();
+    got.sort();
+    assert_eq!(
+        got,
+        vec![par("feature/x", "local"), par("master", "head"), par("v1", "local"), par("v1", "tag")]
+    );
+}
+
+/// (nombre, tipo) de cada chip, para comparar sin depender del orden de campos.
+fn chips(raw: &str) -> Vec<(String, String)> {
+    super::repo::parse_refs_for_test(raw)
+        .into_iter()
+        .map(|c| (c.name, c.kind))
+        .collect()
+}
+
+fn par(n: &str, k: &str) -> (String, String) {
+    (n.to_string(), k.to_string())
+}
+
+#[test]
+fn refs_se_limpian_los_prefijos_y_llevan_tipo() {
+    // `%D` con `--decorate=full`: cada ref viene cualificada, así que el tipo
+    // sale del propio texto y no hay que deducirlo contrastando con la lista.
+    let r = chips("HEAD -> refs/heads/master, refs/remotes/origin/master, tag: refs/tags/v1.0");
+    assert_eq!(
+        r,
+        vec![par("master", "head"), par("origin/master", "remote"), par("v1.0", "tag")]
+    );
 }
 
 #[test]
 fn refs_head_desprendido_se_descarta() {
-    use super::repo::parse_refs_for_test as parse_refs;
     // Con HEAD desprendido, %D da "HEAD" suelto (sin "HEAD -> "): ya se
     // muestra aparte en la topbar, no debe salir como chip duplicado.
-    let r = parse_refs("HEAD, tag: v1.0");
-    assert_eq!(r, vec!["v1.0"]);
+    let r = chips("HEAD, tag: refs/tags/v1.0");
+    assert_eq!(r, vec![par("v1.0", "tag")]);
+}
+
+/// El fallo que motivó los tipos: una rama y un tag con el mismo nombre en el
+/// mismo commit salían como dos chips de rama (el tag desaparecía). Además una
+/// rama local con `/` no se confunde con una remota.
+#[test]
+fn refs_rama_y_tag_homonimos_y_con_barra() {
+    let r = chips(
+        "HEAD -> refs/heads/master, tag: refs/tags/v1, refs/heads/v1, \
+         refs/heads/feature/x, refs/remotes/origin/feature/x, refs/remotes/origin/HEAD, refs/stash",
+    );
+    assert_eq!(
+        r,
+        vec![
+            par("master", "head"),
+            par("v1", "tag"),
+            par("v1", "local"),
+            par("feature/x", "local"),
+            par("origin/feature/x", "remote"),
+            par("origin/HEAD", "remote"),
+            par("refs/stash", "other"),
+        ]
+    );
 }
 
 #[test]

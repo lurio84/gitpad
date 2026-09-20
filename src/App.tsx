@@ -62,17 +62,6 @@ interface LogView {
 }
 const DEFAULT_VIEW: LogView = { mode: "message", query: "", branch: null, limit: LOG_PAGE };
 
-/** Tipo de una ref del log para pintar su chip. `parse_refs` (repo.rs) ya quitó
- * los prefijos `HEAD -> ` y `tag: `, así que se deduce contrastando con la lista
- * de ramas: lo que no es rama es un tag. */
-function refKind(name: string, branches: Branch[]): "head" | "local" | "remote" | "tag" {
-  const b = branches.find((x) => x.name === name);
-  // `branches()` descarta `origin/HEAD` a propósito: no es un tag.
-  if (!b) return name.endsWith("/HEAD") ? "remote" : "tag";
-  if (b.is_head) return "head";
-  return b.is_remote ? "remote" : "local";
-}
-
 /** Ref completa que se le pasa a `get_log` para ver solo una rama. */
 const branchRef = (b: Branch) => (b.is_remote ? "refs/remotes/" : "refs/heads/") + b.name;
 const branchLabel = (ref: string) => ref.replace(/^refs\/(heads|remotes)\//, "");
@@ -1369,21 +1358,18 @@ function App() {
                       }}
                     >
                       <div className="commit-line">
-                        {c.refs.map((r, i) => {
-                          const kind = refKind(r, active.branches);
-                          return (
+                        {c.refs.map((r, i) => (
                           <span
                             // El chip HEAD lleva el hash en la key: al cambiar de
                             // commit (checkout, commit nuevo) se remonta y repite
                             // su pulso una vez.
-                            key={`${i}-${r}${kind === "head" ? active.info?.head_hash : ""}`}
-                            className={`ref ${kind}`}
-                            title={r}
+                            key={`${i}-${r.kind}-${r.name}${r.kind === "head" ? active.info?.head_hash : ""}`}
+                            className={`ref ${r.kind}`}
+                            title={r.kind === "tag" ? `tag ${r.name}` : r.name}
                           >
-                            {r}
+                            {r.name}
                           </span>
-                          );
-                        })}
+                        ))}
                         <span className="subject">{c.subject}</span>
                       </div>
                       <div className="commit-meta">
