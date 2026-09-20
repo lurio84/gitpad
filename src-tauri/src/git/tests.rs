@@ -1703,6 +1703,165 @@ fn log_de_un_archivo_sigue_renombrados_y_es_literal() {
     }
 }
 
+/// Crea un repo temporal con git configurado, para los tests de reset/revert.
+fn repo_temporal(prefijo: &str) -> Option<std::path::PathBuf> {
+    let dir = std::env::temp_dir().join(format!(
+        "gitpad-{prefijo}-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let ok = |args: &[&str]| {
+        std::process::Command::new("git")
+            .args(args)
+            .current_dir(&dir)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    };
+    if !ok(&["init", "-q", "-b", "master"]) {
+        return None;
+    }
+    ok(&["config", "user.email", "t@t"]);
+    ok(&["config", "user.name", "t"]);
+    ok(&["config", "core.autocrlf", "false"]);
+    Some(dir)
+}
+
+/// Revert: limpio (deja un commit nuevo, no reescribe historia), con conflicto
+/// (`op_state` = "revert" por `REVERT_HEAD`; abort vuelve al hash exacto; continue
+/// termina tras resolver a mano) y con un commit de fusión, que git rechaza sin
+/// `-m` y que aquí no debe dejar ninguna operación a medias.
+#[test]
+fn revert_limpio_conflicto_abort_y_continue() {
+    let Some(dir) = repo_temporal("revert") else {
+        eprintln!("git no disponible, se salta el test");
+        return;
+    };
+    let _guard = scopeguard(&dir);
+    let git = |args: &[&str]| {
+        std::process::Command::new("git").args(args).current_dir(&dir).status().unwrap().success()
+    };
+    let git_out = |args: &[&str]| -> String {
+        let o = std::process::Command::new("git").args(args).current_dir(&dir).output().unwrap();
+        String::from_utf8_lossy(&o.stdout).trim().to_string()
+    };
+    let w = |f: &str, c: &str, m: &str| {
+        std::fs::write(dir.join(f), c).unwrap();
+        git(&["add", "-A"]);
+        git(&["commit", "-q", "-m", m]);
+        git_out(&["rev-parse", "HEAD"])
+    };
+
+    w("a.txt", "1\n", "base");
+    let x = w("a.txt", "2\n", "X: a=2");
+    let y = w("b.txt", "y\n", "Y: otro archivo");
+
+    // Limpio: revertir Y (toca otro archivo) deja un commit nuevo encima.
+    super::repo::revert(&dir, &y).expect("revert limpio");
+    assert!(!dir.join("b.txt").exists(), "el revert deshace el cambio");
+    assert!(git_out(&["log", "-1", "--format=%s"]).starts_with("Revert"), "commit nuevo, no reescribe");
+    assert_eq!(git_out(&["rev-list", "--count", "HEAD"]), "4", "la historia crece, no se reescribe");
+
+    // Conflicto: revertir X (a: 1→2) cuando un commit posterior ya cambió esa línea.
+    w("a.txt", "3\n", "Z: a=3");
+    let antes = git_out(&["rev-parse", "HEAD"]);
+    assert!(super::repo::revert(&dir, &x).is_err(), "conflicto: falla, no se cuelga");
+    let st = super::repo::op_state(&dir).unwrap().expect("revert en curso");
+    assert_eq!(st.kind, "revert");
+    super::repo::op_abort(&dir).expect("abort");
+    assert!(super::repo::op_state(&dir).unwrap().is_none());
+    assert_eq!(git_out(&["rev-parse", "HEAD"]), antes, "abort deja HEAD exacto");
+
+    assert!(super::repo::revert(&dir, &x).is_err());
+    std::fs::write(dir.join("a.txt"), "resuelto\n").unwrap();
+    git(&["add", "-A"]);
+    super::repo::op_continue(&dir).expect("continue tras resolver a mano");
+    assert!(super::repo::op_state(&dir).unwrap().is_none());
+    assert!(git_out(&["log", "-1", "--format=%s"]).starts_with("Revert"));
+    assert_eq!(git_out(&["show", "HEAD:a.txt"]), "resuelto");
+
+    // Un commit de fusión: git exige `-m`. Error limpio, sin dejar nada a medias.
+    git(&["checkout", "-q", "-b", "rama"]);
+    w("r.txt", "r\n", "R en rama");
+    git(&["checkout", "-q", "master"]);
+    w("m.txt", "m\n", "M en master");
+    git(&["merge", "-q", "--no-edit", "rama"]);
+    let merge = git_out(&["rev-parse", "HEAD"]);
+    assert!(super::repo::revert(&dir, &merge).is_err(), "revertir una fusión sin -m falla");
+    assert!(super::repo::op_state(&dir).unwrap().is_none(), "y no deja operación a medias");
+
+    // Entrada que no es un hash.
+    for mala in ["", "--abort", "master", "HEAD"] {
+        assert!(super::repo::revert(&dir, mala).is_err(), "debe rechazar {mala:?}");
+    }
+}
+
+/// Reset a un commit: qué queda en HEAD, en el índice y en el árbol de trabajo
+/// según el modo, contrastado con git real. `hard` descarta lo modificado pero
+/// NO los archivos sin seguir.
+#[test]
+fn reset_soft_mixed_y_hard() {
+    let Some(dir) = repo_temporal("reset") else {
+        eprintln!("git no disponible, se salta el test");
+        return;
+    };
+    let _guard = scopeguard(&dir);
+    let git = |args: &[&str]| {
+        std::process::Command::new("git").args(args).current_dir(&dir).status().unwrap().success()
+    };
+    let git_out = |args: &[&str]| -> String {
+        let o = std::process::Command::new("git").args(args).current_dir(&dir).output().unwrap();
+        String::from_utf8_lossy(&o.stdout).trim().to_string()
+    };
+    let w = |f: &str, c: &str, m: &str| {
+        std::fs::write(dir.join(f), c).unwrap();
+        git(&["add", "-A"]);
+        git(&["commit", "-q", "-m", m]);
+        git_out(&["rev-parse", "HEAD"])
+    };
+    let c1 = w("a.txt", "1\n", "c1");
+    w("a.txt", "2\n", "c2");
+    let c3 = w("a.txt", "3\n", "c3");
+    let leer = |f: &str| std::fs::read_to_string(dir.join(f)).unwrap();
+
+    // soft: HEAD se mueve; el índice conserva los cambios (staged) y el árbol también.
+    super::repo::reset(&dir, &c1, "soft").expect("soft");
+    assert_eq!(git_out(&["rev-parse", "HEAD"]), c1);
+    assert_eq!(git_out(&["diff", "--cached", "--name-only"]), "a.txt", "soft deja los cambios en el índice");
+    assert_eq!(leer("a.txt"), "3\n");
+
+    // mixed: HEAD y índice se mueven; el árbol conserva el contenido, sin staged.
+    git(&["reset", "-q", "--hard", &c3]);
+    super::repo::reset(&dir, &c1, "mixed").expect("mixed");
+    assert_eq!(git_out(&["rev-parse", "HEAD"]), c1);
+    assert_eq!(git_out(&["diff", "--cached", "--name-only"]), "", "mixed vacía el índice");
+    assert_eq!(leer("a.txt"), "3\n", "pero no toca el árbol de trabajo");
+
+    // hard: todo vuelve a c1, también un cambio sin guardar; el archivo sin seguir sobrevive.
+    git(&["reset", "-q", "--hard", &c3]);
+    std::fs::write(dir.join("a.txt"), "sucio\n").unwrap();
+    std::fs::write(dir.join("sin_seguir.txt"), "u\n").unwrap();
+    super::repo::reset(&dir, &c1, "hard").expect("hard");
+    assert_eq!(git_out(&["rev-parse", "HEAD"]), c1);
+    assert_eq!(leer("a.txt"), "1\n", "hard descarta el cambio sin guardar");
+    assert!(dir.join("sin_seguir.txt").exists(), "…pero no borra archivos sin seguir");
+
+    // Entradas inválidas: modo desconocido o con forma de opción, hash que no es hex,
+    // y un hash bien formado que no existe.
+    for modo in ["", "--hard", "keep", "HARD"] {
+        assert!(super::repo::reset(&dir, &c1, modo).is_err(), "modo {modo:?}");
+    }
+    for mala in ["", "--soft", "master", "HEAD"] {
+        assert!(super::repo::reset(&dir, mala, "soft").is_err(), "hash {mala:?}");
+    }
+    assert!(super::repo::reset(&dir, "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef", "hard").is_err());
+    assert_eq!(git_out(&["rev-parse", "HEAD"]), c1, "los rechazos no mueven HEAD");
+}
+
 /// Mientras hay una operación en curso, `op_continue`/`op_abort` sin ninguna
 /// pendiente deben fallar con mensaje, no entrar en pánico.
 #[test]

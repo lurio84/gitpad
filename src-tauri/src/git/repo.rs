@@ -906,6 +906,8 @@ pub fn op_state(repo: &Path) -> GitResult<Option<OpState>> {
         Some("rebase")
     } else if git_dir.join("CHERRY_PICK_HEAD").exists() {
         Some("cherry_pick")
+    } else if git_dir.join("REVERT_HEAD").exists() {
+        Some("revert")
     } else if git_dir.join("MERGE_HEAD").exists() {
         Some("merge")
     } else {
@@ -925,8 +927,9 @@ pub fn op_continue(repo: &Path) -> GitResult<()> {
     let args: &[&str] = match state.kind.as_str() {
         "rebase" => &["-c", "core.editor=true", "rebase", "--continue"],
         "cherry_pick" => &["-c", "core.editor=true", "cherry-pick", "--continue"],
+        "revert" => &["-c", "core.editor=true", "revert", "--continue"],
         "merge" => &["-c", "core.editor=true", "commit", "--no-edit"],
-        _ => unreachable!("op_state solo produce estos tres valores"),
+        _ => unreachable!("op_state solo produce estos cuatro valores"),
     };
     run_git(repo, args).map(|_| ())
 }
@@ -938,8 +941,9 @@ pub fn op_abort(repo: &Path) -> GitResult<()> {
     let args: &[&str] = match state.kind.as_str() {
         "rebase" => &["rebase", "--abort"],
         "cherry_pick" => &["cherry-pick", "--abort"],
+        "revert" => &["revert", "--abort"],
         "merge" => &["merge", "--abort"],
-        _ => unreachable!("op_state solo produce estos tres valores"),
+        _ => unreachable!("op_state solo produce estos cuatro valores"),
     };
     run_git(repo, args).map(|_| ())
 }
@@ -1007,6 +1011,33 @@ pub fn cherry_pick(repo: &Path, hash: &str) -> GitResult<()> {
         return Err(GitError::Parse(format!("hash de commit inválido: {hash}")));
     }
     run_git(repo, &["cherry-pick", hash]).map(|_| ())
+}
+
+/// Deshace un commit con otro commit nuevo encima (no reescribe historia, a
+/// diferencia de `reset`). Si el cambio choca con lo posterior para en conflicto
+/// y se resuelve con `op_continue`/`op_abort` (`REVERT_HEAD`). Un commit de
+/// fusión no se puede revertir sin elegir padre (`-m`): git lo rechaza y aquí no
+/// se decide por el usuario.
+pub fn revert(repo: &Path, hash: &str) -> GitResult<()> {
+    check_start_point(hash)?;
+    run_git(repo, &["-c", "core.editor=true", "revert", "--no-edit", hash]).map(|_| ())
+}
+
+/// Mueve la rama actual (y HEAD) a `hash`. `mode`: `soft` conserva índice y
+/// árbol de trabajo; `mixed` vacía el índice y conserva el árbol; `hard`
+/// descarta también los cambios del árbol (los archivos SIN SEGUIR no se
+/// tocan). Los commits que quedan por delante siguen en el reflog, pero dejan
+/// de estar en la rama. El modo es una lista cerrada: nunca se le pasa a git
+/// texto del usuario como opción.
+pub fn reset(repo: &Path, hash: &str, mode: &str) -> GitResult<()> {
+    let flag = match mode {
+        "soft" => "--soft",
+        "mixed" => "--mixed",
+        "hard" => "--hard",
+        _ => return Err(GitError::Parse(format!("modo de reset desconocido: {mode}"))),
+    };
+    check_start_point(hash)?;
+    run_git(repo, &["reset", flag, "--quiet", hash]).map(|_| ())
 }
 
 /// Rebase simple: "traer los cambios de `onto` a mi rama" (confirmado por
