@@ -82,9 +82,6 @@ function App() {
   // corto no cuelga de ninguna pestaña, así que su estado va aparte.
   const [opening, setOpening] = useState(false);
   const [openError, setOpenError] = useState<string | null>(null);
-  // Arrastre para reordenar pestañas: cuál se arrastra y sobre cuál está.
-  const [dragRoot, setDragRoot] = useState<string | null>(null);
-  const [dragOver, setDragOver] = useState<string | null>(null);
   // Menú contextual abierto (clic derecho en una rama, un commit o un tag).
   const [menu, setMenu] = useState<MenuState | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
@@ -1119,10 +1116,6 @@ function App() {
         <TabsBar
           tabs={tabs}
           activeRoot={activeRoot}
-          dragRoot={dragRoot}
-          dragOver={dragOver}
-          setDragRoot={setDragRoot}
-          setDragOver={setDragOver}
           selectTab={selectTab}
           closeTab={closeTab}
           moveTab={moveTab}

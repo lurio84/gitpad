@@ -1,22 +1,21 @@
+import { useState } from "react";
 import { focusable } from "./a11y";
 import { basename } from "./format";
 import type { Tab } from "./tabModel";
 
-/** Barra de pestañas de repos: activar, cerrar y reordenar arrastrando. El arrastre
- * (`dragRoot`/`dragOver`) sigue siendo estado de `App`; aquí solo se pinta. */
 interface Props {
   tabs: Tab[];
   activeRoot: string | null;
-  dragRoot: string | null;
-  dragOver: string | null;
-  setDragRoot: (root: string | null) => void;
-  setDragOver: (root: string | null) => void;
   selectTab: (root: string) => void;
   closeTab: (root: string) => void;
   moveTab: (from: string, to: string) => void;
 }
 
-export function TabsBar({ tabs, activeRoot, dragRoot, dragOver, setDragRoot, setDragOver, selectTab, closeTab, moveTab }: Props) {
+/** Barra de pestañas de repos: activar, cerrar y reordenar arrastrando. Es dueña del
+ * estado del arrastre (cuál se arrastra y sobre cuál está): nadie más lo usa. */
+export function TabsBar({ tabs, activeRoot, selectTab, closeTab, moveTab }: Props) {
+  const [dragRoot, setDragRoot] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState<string | null>(null);
   return (
     <nav className="tabs" role="tablist" aria-label="Repositorios abiertos">
       {tabs.map((t) => (
