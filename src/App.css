@@ -1399,3 +1399,9 @@ body.resizing {
 .tab:focus-visible {
   outline-offset: -2px;
 }
+
+/* Lista de commits vacía (repo sin commits o filtro sin resultados). */
+.empty-log {
+  margin: 0;
+  padding: 12px 14px;
+}

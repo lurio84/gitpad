@@ -1577,6 +1577,13 @@ function App() {
                 </button>
               </p>
             )}
+            {!active.loading && displayCommits.length === 0 && (
+              <p className="clean empty-log">
+                {active.filterQuery.trim() || active.filterBranch || active.filterFile
+                  ? "Ningún commit coincide con el filtro."
+                  : "Este repo aún no tiene commits."}
+              </p>
+            )}
             <div className={`commit-list${introOn ? " intro" : ""}`}>
               {/* Con el historial de un archivo `%P` trae los padres reales, que casi
                   nunca están en la lista filtrada: dibujar líneas hacia ellos fingiría
@@ -1998,7 +2005,7 @@ function App() {
                       </div>
                       <ul>
                         {unstagedEntries.length === 0 && (
-                          <li className="clean-row">—</li>
+                          <li className="clean-row">Nada sin preparar</li>
                         )}
                         {unstagedEntries.map((e) => {
                           const untracked = e.unstaged === "?";
@@ -2074,7 +2081,7 @@ function App() {
                         )}
                       </div>
                       <ul>
-                        {stagedEntries.length === 0 && <li className="clean-row">—</li>}
+                        {stagedEntries.length === 0 && <li className="clean-row">Nada preparado</li>}
                         {stagedEntries.map((e) => (
                           <li
                             key={`s-${e.path}`}

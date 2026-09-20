@@ -631,6 +631,28 @@ try {
   await ev(`(${branchRow("otra")}).focus()`);
   await enter();
   check("ramas: Enter sobre «otra» hace checkout", await waitGit(() => git(R, "branch", "--show-current") === "otra"));
+
+  // ===== Tanda 4. Estados vacíos =====
+  console.log("\n# 6. Estados vacíos");
+  await reloadWith([rootR], rootR);
+  check("con commits no sale el mensaje de lista vacía", (await ev("!!document.querySelector('.empty-log')")) === false);
+  // Búsqueda sin resultados: mensaje explícito (antes, una columna en blanco).
+  await ev(`(() => {
+    const el = document.querySelector('input[placeholder="Buscar commits…"]');
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, 'zzz-no-existe-zzz');
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    return 1; })()`);
+  await ev("Array.from(document.querySelectorAll('button')).find((b) => b.textContent.trim() === 'Buscar').click()");
+  check("búsqueda sin resultados: «Ningún commit coincide con el filtro.»",
+    await waitFor("document.querySelector('.empty-log')?.textContent.includes('Ningún commit coincide') ? 1 : null").then(() => true, () => false),
+    await ev("document.querySelector('.empty-log')?.textContent ?? '(sin mensaje)'"));
+  check("búsqueda sin resultados: sigue el banner con el recuento", (await ev("document.querySelector('.filter-info')?.textContent.includes('0 resultados') ?? false")) === true);
+  // Sección sin nada: texto y no un guion suelto.
+  put(R, "nuevo.txt", "n\n");
+  await reloadWith([rootR], rootR);
+  const filasVacias = await ev("Array.from(document.querySelectorAll('.clean-row')).map((e) => e.textContent)");
+  check("secciones vacías: «Nada preparado» en vez de un «—»", filasVacias.includes("Nada preparado") && !filasVacias.includes("—"), filasVacias.join("|"));
+  rmSync(join(R, "nuevo.txt"));
 } finally {
   await restoreLS();
   ws.close();
