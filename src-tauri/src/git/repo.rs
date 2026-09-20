@@ -774,9 +774,11 @@ fn parse_branch_lines(raw: &str) -> GitResult<Vec<Branch>> {
 /// Cambia de rama. `name` debe ser el nombre corto sin cualificar
 /// (`checkout_arg` de `Branch`, o el nombre tal cual de una rama local):
 /// es la única forma que hace que `git checkout` cambie de rama en vez de
-/// dejar HEAD "detached".
+/// dejar HEAD "detached". `--end-of-options` (git ≥ 2.24) y no `--`: aquí `--`
+/// significa "lo que sigue son rutas", así que `git checkout -- feat` restauraría
+/// un archivo llamado `feat` en vez de cambiar de rama.
 pub fn checkout(repo: &Path, name: &str) -> GitResult<()> {
-    run_git(repo, &["checkout", name]).map(|_| ())
+    run_git(repo, &["checkout", "--end-of-options", name]).map(|_| ())
 }
 
 /// `-c` que limitan las tres operaciones de red: sin ellos una conexión
@@ -969,12 +971,17 @@ pub fn cherry_pick(repo: &Path, hash: &str) -> GitResult<()> {
 /// Rebase simple: "traer los cambios de `onto` a mi rama" (confirmado por
 /// Bernardo — nada de reordenar/aplastar interactivo). `core.editor=true`
 /// evita que un rebase sin conflicto que aun así quisiera abrir un editor
-/// (p. ej. por un merge commit) se quede colgado.
+/// (p. ej. por un merge commit) se quede colgado. `--end-of-options` para que
+/// `onto` nunca se lea como opción (ver `checkout`).
 pub fn rebase(repo: &Path, onto: &str) -> GitResult<()> {
     if onto.trim().is_empty() {
         return Err(GitError::Parse("falta la rama base para el rebase".into()));
     }
-    run_git(repo, &["-c", "core.editor=true", "rebase", onto]).map(|_| ())
+    run_git(
+        repo,
+        &["-c", "core.editor=true", "rebase", "--end-of-options", onto],
+    )
+    .map(|_| ())
 }
 
 /// Rama por defecto del remoto (`refs/remotes/origin/HEAD`), si existe. Solo

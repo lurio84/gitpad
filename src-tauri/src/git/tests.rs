@@ -1450,6 +1450,69 @@ fn op_continue_abort_sin_operacion_en_curso_es_error() {
     assert!(super::repo::op_abort(&dir).is_err());
 }
 
+/// `checkout` y `rebase` reciben una ref del frontend. Una ref que empiece por
+/// `-` no debe leerse como opción de git: `--detach` y `--root` TIENEN éxito
+/// si se interpretan como flags (desprenden HEAD / reescriben la rama), así que
+/// discriminan mejor que un flag inválido, que falla con o sin el arreglo.
+/// Y el cambio de rama normal sigue funcionando (`--end-of-options`, no `--`:
+/// `git checkout -- feat` restauraría un *archivo* llamado `feat`).
+#[test]
+fn checkout_y_rebase_no_leen_la_ref_como_opcion() {
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    let dir: PathBuf = std::env::temp_dir().join(format!(
+        "gitpad-eoo-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let _guard = scopeguard(&dir);
+
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .args(args)
+            .current_dir(&dir)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    };
+    if !git(&["init", "-q", "-b", "master"]) {
+        eprintln!("git no disponible, se salta el test");
+        return;
+    }
+    git(&["config", "user.email", "t@t"]);
+    git(&["config", "user.name", "t"]);
+    std::fs::write(dir.join("base.txt"), "0\n").unwrap();
+    git(&["add", "-A"]);
+    git(&["commit", "-q", "-m", "base"]);
+    git(&["branch", "feat"]);
+    let rama = || {
+        let out = Command::new("git")
+            .args(["branch", "--show-current"])
+            .current_dir(&dir)
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    };
+
+    // El cambio de rama de siempre sigue funcionando.
+    super::repo::checkout(&dir, "feat").expect("checkout normal");
+    assert_eq!(rama(), "feat");
+
+    // `--detach` como flag desprendería HEAD (rama vacía). Debe fallar y no tocar nada.
+    assert!(super::repo::checkout(&dir, "--detach").is_err());
+    assert_eq!(rama(), "feat", "HEAD no debe desprenderse");
+
+    // `--root` como flag rehace la rama entera (éxito, rc=0); como ref es inválida.
+    assert!(super::repo::rebase(&dir, "--root").is_err());
+    // Y un rebase normal sigue funcionando.
+    super::repo::rebase(&dir, "master").expect("rebase normal");
+}
+
 /// Limpieza best-effort del directorio temporal al salir del test.
 fn scopeguard(dir: &std::path::Path) -> impl Drop + '_ {
     struct G<'a>(&'a std::path::Path);
