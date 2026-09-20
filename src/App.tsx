@@ -147,6 +147,8 @@ interface Tab {
   filesScope: "changes" | "all";
   /** Árbol completo del commit `treeHash` (`null` = aún sin pedir). */
   treePaths: string[];
+  /** Rutas reales del commit: mayor que `treePaths.length` si se recortó. */
+  treeTotal: number;
   treeHash: string | null;
   treeLoading: boolean;
   content: FileContent | null;
@@ -199,6 +201,7 @@ function emptyTab(root: string): Tab {
     commitFilesLoading: false,
     filesScope: "changes",
     treePaths: [],
+    treeTotal: 0,
     treeHash: null,
     treeLoading: false,
     content: null,
@@ -529,15 +532,15 @@ function App() {
   const loadTree = useCallback(async (root: string, hash: string) => {
     setTabs((ts) =>
       ts.map((t) =>
-        t.root === root ? { ...t, treeHash: hash, treeLoading: true, treePaths: [] } : t,
+        t.root === root ? { ...t, treeHash: hash, treeLoading: true, treePaths: [], treeTotal: 0 } : t,
       ),
     );
     try {
-      const paths = await getTreeFiles(root, hash);
+      const tree = await getTreeFiles(root, hash);
       setTabs((ts) =>
         ts.map((t) =>
           t.root === root && t.treeHash === hash
-            ? { ...t, treePaths: paths, treeLoading: false }
+            ? { ...t, treePaths: tree.paths, treeTotal: tree.total, treeLoading: false }
             : t,
         ),
       );
@@ -546,7 +549,7 @@ function App() {
       setTabs((ts) =>
         ts.map((t) =>
           t.root === root && t.treeHash === hash
-            ? { ...t, treePaths: [], treeLoading: false, error: msg }
+            ? { ...t, treePaths: [], treeTotal: 0, treeLoading: false, error: msg }
             : t,
         ),
       );
@@ -1790,6 +1793,13 @@ function App() {
                 ) : active.treePaths.length === 0 ? (
                   <p className="clean">Sin archivos.</p>
                 ) : (
+                  <>
+                  {active.treeTotal > active.treePaths.length && (
+                    <p className="clean" role="status">
+                      Mostrando {active.treePaths.length.toLocaleString("es-ES")} de{" "}
+                      {active.treeTotal.toLocaleString("es-ES")} archivos.
+                    </p>
+                  )}
                   <div className="tree-scroll">
                     <FileTree
                       items={active.treePaths}
@@ -1831,6 +1841,7 @@ function App() {
                       }}
                     />
                   </div>
+                  </>
                 )}
               </>
             ) : active.sel?.t === "commit" ? (

@@ -5,6 +5,7 @@ import type {
   Commit,
   CommitFile,
   FileContent,
+  TreeFiles,
   OpState,
   RepoInfo,
   Stash,
@@ -74,7 +75,7 @@ export function getCommitFileDiff(
 }
 
 /** Todas las rutas del árbol de un commit, recursivo (no solo las que tocó). */
-export function getTreeFiles(path: string, hash: string): Promise<string[]> {
+export function getTreeFiles(path: string, hash: string): Promise<TreeFiles> {
   return invoke("get_tree_files", { path, hash });
 }
 

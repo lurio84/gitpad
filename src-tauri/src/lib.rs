@@ -6,6 +6,7 @@ use std::path::Path;
 use git::error::GitResult;
 use git::repo::{
     Branch, Commit, CommitFile, FileContent, LogFilter, OpState, RepoInfo, Stash, Status,
+    TreeFiles,
 };
 
 // `async` sobre una fn síncrona: Tauri la ejecuta en su threadpool en vez de
@@ -184,7 +185,7 @@ fn get_commit_file_diff(
 }
 
 #[tauri::command(async)]
-fn get_tree_files(path: String, hash: String) -> GitResult<Vec<String>> {
+fn get_tree_files(path: String, hash: String) -> GitResult<TreeFiles> {
     git::repo::tree_files(Path::new(&path), &hash)
 }
 

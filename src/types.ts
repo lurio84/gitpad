@@ -85,6 +85,14 @@ export interface CommitFile {
   status: string;
 }
 
+/** Rutas del árbol de un commit. Con más de 50 000 llegan solo las primeras. */
+export interface TreeFiles {
+  paths: string[];
+  /** `true` si `paths` es solo una parte de las `total` rutas del commit. */
+  truncated: boolean;
+  total: number;
+}
+
 /** Contenido de un archivo en un commit (`git show <hash>:<ruta>`). */
 export interface FileContent {
   /** Texto del archivo, o `null` si es binario o demasiado grande para leerlo (>64 MiB). */

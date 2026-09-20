@@ -585,7 +585,27 @@ pub fn commit_file_diff(
 ///
 /// `-r` sin `-t` no emite entradas de directorio: solo salen blobs (y gitlinks
 /// de submódulo, que aparecen como una ruta más y no se recorren).
-pub fn tree_files(repo: &Path, hash: &str) -> GitResult<Vec<String>> {
+pub fn tree_files(repo: &Path, hash: &str) -> GitResult<TreeFiles> {
+    tree_files_capped(repo, hash, MAX_TREE_PATHS)
+}
+
+/// Rutas del árbol de un commit. Si hay más de `MAX_TREE_PATHS`, `paths` trae
+/// solo las primeras y `total` dice cuántas hay de verdad, para que la UI lo
+/// avise en vez de mostrar una lista recortada sin decirlo.
+#[derive(Debug, Serialize)]
+pub struct TreeFiles {
+    pub paths: Vec<String>,
+    pub truncated: bool,
+    pub total: usize,
+}
+
+/// Tope de rutas que cruzan el IPC y se pintan. Acota el coste en la UI, no la
+/// memoria de `git ls-tree`: su stdout se sigue leyendo entero (`.output()`).
+pub const MAX_TREE_PATHS: usize = 50_000;
+
+/// `tree_files` con el tope inyectado (los tests lo bajan para no crear miles
+/// de archivos).
+pub(super) fn tree_files_capped(repo: &Path, hash: &str, cap: usize) -> GitResult<TreeFiles> {
     if hash.is_empty() || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err(GitError::Parse(format!("hash de commit inválido: {hash}")));
     }
@@ -595,11 +615,15 @@ pub fn tree_files(repo: &Path, hash: &str) -> GitResult<Vec<String>> {
     let bytes = run_git_bytes(repo, &["ls-tree", "-r", "--name-only", "-z", hash])?;
     let out = String::from_utf8(bytes)
         .map_err(|_| GitError::Parse("la salida de git ls-tree tiene bytes no UTF-8".into()))?;
-    Ok(out
-        .split('\0')
-        .filter(|t| !t.is_empty())
-        .map(str::to_string)
-        .collect())
+    let mut paths = Vec::new();
+    let mut total = 0;
+    for t in out.split('\0').filter(|t| !t.is_empty()) {
+        total += 1;
+        if paths.len() < cap {
+            paths.push(t.to_string());
+        }
+    }
+    Ok(TreeFiles { truncated: total > paths.len(), paths, total })
 }
 
 /// El commit al que apunta `file` si en `hash` es un gitlink (submódulo, modo

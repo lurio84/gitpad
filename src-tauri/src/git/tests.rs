@@ -562,7 +562,9 @@ fn tree_files_lista_el_arbol_completo() {
     git(&["commit", "-q", "-m", "arbol"]);
     let hash = git_out(&["rev-parse", "HEAD"]);
 
-    let mut files = super::repo::tree_files(&dir, &hash).expect("tree_files");
+    let arbol = super::repo::tree_files(&dir, &hash).expect("tree_files");
+    assert!(!arbol.truncated && arbol.total == arbol.paths.len());
+    let mut files = arbol.paths;
     files.sort();
     assert_eq!(
         files,
@@ -582,7 +584,17 @@ fn tree_files_lista_el_arbol_completo() {
     git(&["add", "-A"]);
     git(&["commit", "-q", "-m", "mas tarde"]);
     let viejos = super::repo::tree_files(&dir, &hash).expect("tree_files viejo");
-    assert!(!viejos.iter().any(|f| f == "tarde.txt"));
+    assert!(!viejos.paths.iter().any(|f| f == "tarde.txt"));
+
+    // Con el tope por debajo de lo que hay, se recortan las rutas pero `total`
+    // sigue diciendo la verdad y `truncated` lo señala: nunca en silencio.
+    let poco = super::repo::tree_files_capped(&dir, &hash, 2).expect("tope 2");
+    assert_eq!(poco.paths.len(), 2);
+    assert_eq!(poco.total, 4, "total es el real, no el recortado");
+    assert!(poco.truncated);
+    // Justo en el tope no es truncado.
+    let justo = super::repo::tree_files_capped(&dir, &hash, 4).expect("tope 4");
+    assert!(!justo.truncated && justo.paths.len() == 4);
 
     assert!(matches!(
         super::repo::tree_files(&dir, "HEAD;rm"),
