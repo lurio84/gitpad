@@ -1417,6 +1417,98 @@ fn rebase_conflicto_abort_y_continue() {
     assert_eq!(content, "base\nmaster\nfeature\n");
 }
 
+/// Merge explícito: limpio (rama divergida → commit de fusión con dos padres),
+/// con conflicto (`op_state` lo ve como "merge", `op_abort` devuelve HEAD al
+/// hash exacto de antes, `op_continue` termina tras resolver a mano) y con una
+/// ref que no es `refs/heads|remotes/…` (rechazada antes de invocar git).
+/// Es la primera vez que la maquinaria de `MERGE_HEAD` de `op_*` se ejercita.
+#[test]
+fn merge_limpio_conflicto_abort_y_continue() {
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    let dir: PathBuf = std::env::temp_dir().join(format!(
+        "gitpad-merge-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let _guard = scopeguard(&dir);
+
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .args(args)
+            .current_dir(&dir)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    };
+    let git_out = |args: &[&str]| -> String {
+        let o = Command::new("git").args(args).current_dir(&dir).output().unwrap();
+        String::from_utf8_lossy(&o.stdout).trim().to_string()
+    };
+    if !git(&["init", "-q", "-b", "master"]) {
+        eprintln!("git no disponible, se salta el test");
+        return;
+    }
+    git(&["config", "user.email", "t@t"]);
+    git(&["config", "user.name", "t"]);
+    std::fs::write(dir.join("f.txt"), "base\n").unwrap();
+    git(&["add", "-A"]);
+    git(&["commit", "-q", "-m", "base"]);
+
+    // Rama `limpia` toca OTRO archivo; master avanza en f.txt → divergen sin conflicto.
+    git(&["checkout", "-q", "-b", "limpia"]);
+    std::fs::write(dir.join("g.txt"), "g\n").unwrap();
+    git(&["add", "-A"]);
+    git(&["commit", "-q", "-m", "commit de limpia"]);
+    git(&["checkout", "-q", "master"]);
+    std::fs::write(dir.join("f.txt"), "base\nmaster\n").unwrap();
+    git(&["commit", "-qam", "cambio en master"]);
+
+    super::repo::merge(&dir, "refs/heads/limpia").expect("merge limpio");
+    let padres = git_out(&["rev-list", "--parents", "-n", "1", "HEAD"]);
+    assert_eq!(padres.split_whitespace().count(), 3, "commit de fusión = hash + 2 padres: {padres}");
+    assert!(dir.join("g.txt").exists());
+    assert!(super::repo::op_state(&dir).expect("op_state").is_none());
+
+    // Rama `choca`, desde el commit raíz, añade en f.txt una línea distinta a la
+    // que añadió master → conflicto garantizado.
+    let raiz = git_out(&["rev-list", "--max-parents=0", "HEAD"]);
+    git(&["checkout", "-q", "-b", "choca", &raiz]);
+    std::fs::write(dir.join("f.txt"), "base\nchoca\n").unwrap();
+    git(&["commit", "-qam", "cambio en choca"]);
+    git(&["checkout", "-q", "master"]);
+    let head_before = git_out(&["rev-parse", "HEAD"]);
+
+    assert!(
+        super::repo::merge(&dir, "refs/heads/choca").is_err(),
+        "el merge debe fallar por conflicto, no colgarse"
+    );
+    let state = super::repo::op_state(&dir).expect("op_state").expect("debe haber un merge en curso");
+    assert_eq!(state.kind, "merge");
+
+    super::repo::op_abort(&dir).expect("op_abort");
+    assert!(super::repo::op_state(&dir).expect("tras abort").is_none());
+    assert_eq!(git_out(&["rev-parse", "HEAD"]), head_before, "abort deja HEAD igual que antes");
+
+    super::repo::merge(&dir, "refs/heads/choca").expect_err("vuelve a conflictuar igual");
+    std::fs::write(dir.join("f.txt"), "base\nmaster\nchoca\n").unwrap();
+    git(&["add", "-A"]);
+    super::repo::op_continue(&dir).expect("op_continue tras resolver a mano");
+    assert!(super::repo::op_state(&dir).expect("final").is_none());
+    let padres = git_out(&["rev-list", "--parents", "-n", "1", "HEAD"]);
+    assert_eq!(padres.split_whitespace().count(), 3, "el merge resuelto tiene dos padres");
+
+    // Refs que no son de rama: rechazadas sin llegar a git (`--abort` sería una opción).
+    for mala in ["", "--abort", "choca", "tags/v1", "refs/tags/v1"] {
+        assert!(super::repo::merge(&dir, mala).is_err(), "debe rechazar {mala:?}");
+    }
+}
+
 /// Mientras hay una operación en curso, `op_continue`/`op_abort` sin ninguna
 /// pendiente deben fallar con mensaje, no entrar en pánico.
 #[test]

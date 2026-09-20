@@ -984,6 +984,25 @@ pub fn rebase(repo: &Path, onto: &str) -> GitResult<()> {
     .map(|_| ())
 }
 
+/// Fusiona la rama `from` en la actual. Es la salida a una divergencia que
+/// `pull` (`--ff-only`) no resuelve, junto con el rebase. Fast-forward si se
+/// puede; si no, commit de fusión. Si para en conflicto, `op_state` lo ve como
+/// "merge" (por `MERGE_HEAD`) y se resuelve con `op_continue`/`op_abort`.
+///
+/// `from` debe venir cualificada (`refs/heads/x` o `refs/remotes/o/x`), igual
+/// que el filtro de `log`: un nombre corto sería ambiguo con un tag homónimo, y
+/// así ninguna entrada puede leerse como opción de git.
+pub fn merge(repo: &Path, from: &str) -> GitResult<()> {
+    if !(from.starts_with("refs/heads/") || from.starts_with("refs/remotes/")) {
+        return Err(GitError::Parse(format!("ref de rama inválida: {from}")));
+    }
+    run_git(
+        repo,
+        &["-c", "core.editor=true", "merge", "--no-edit", "--end-of-options", from],
+    )
+    .map(|_| ())
+}
+
 /// Rama por defecto del remoto (`refs/remotes/origin/HEAD`), si existe. Solo
 /// la fija un `clone` o un `git remote set-head` explícito — en su ausencia
 /// no se adivina "main" ni "master": la UI ofrece el selector de ramas.
