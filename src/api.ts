@@ -174,6 +174,11 @@ export function rebaseOnto(path: string, onto: string): Promise<void> {
   return invoke("rebase_onto", { path, onto });
 }
 
+/** `from` va cualificada: `refs/heads/x` o `refs/remotes/o/x`. */
+export function mergeBranch(path: string, from: string): Promise<void> {
+  return invoke("merge_branch", { path, from });
+}
+
 export function getDefaultBase(path: string): Promise<string | null> {
   return invoke("get_default_base", { path });
 }

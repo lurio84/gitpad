@@ -106,6 +106,11 @@ fn rebase_onto(path: String, onto: String) -> GitResult<()> {
 }
 
 #[tauri::command(async)]
+fn merge_branch(path: String, from: String) -> GitResult<()> {
+    git::repo::merge(Path::new(&path), &from)
+}
+
+#[tauri::command(async)]
 fn get_default_base(path: String) -> GitResult<Option<String>> {
     git::repo::default_base(Path::new(&path))
 }
@@ -210,6 +215,7 @@ pub fn run() {
             stash_drop,
             cherry_pick,
             rebase_onto,
+            merge_branch,
             get_default_base
         ])
         .run(tauri::generate_context!())

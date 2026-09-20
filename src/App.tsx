@@ -19,6 +19,7 @@ import {
   getTreeFiles,
   opAbort,
   opContinue,
+  mergeBranch,
   openRepo,
   pickRepoFolder,
   pullRemote,
@@ -162,6 +163,8 @@ interface Tab {
   /** Rama base elegida para el rebase; se precarga con `default_base`. */
   rebaseTarget: string;
   rebasing: boolean;
+  /** `true` mientras se ejecuta una operación sobre ramas/tags (merge, …). */
+  refBusy: boolean;
   filterMode: LogFilterMode;
   filterQuery: string;
   /** Ref completa (`refs/heads/x`) si el log se limita a una rama; null = todas. */
@@ -205,6 +208,7 @@ function emptyTab(root: string): Tab {
     cherryBusy: false,
     rebaseTarget: "",
     rebasing: false,
+    refBusy: false,
     filterMode: "message",
     filterQuery: "",
     filterBranch: null,
@@ -548,6 +552,7 @@ function App() {
         stashBusy: false,
         cherryBusy: false,
         rebasing: false,
+        refBusy: false,
       });
     },
     [patchTab],
@@ -766,6 +771,23 @@ function App() {
         patchTab(root, { rebasing: false });
         await reload(root);
       } catch (e) {
+        failTab(root, e);
+        await refreshVolatile(root);
+      }
+    },
+    [reload, patchTab, failTab, refreshVolatile],
+  );
+
+  const doMerge = useCallback(
+    async (root: string, branch: Branch) => {
+      if (!window.confirm(`¿Hacer merge de "${branch.name}" en la rama activa?`)) return;
+      patchTab(root, { refBusy: true, error: null });
+      try {
+        await mergeBranch(root, branchRef(branch));
+        patchTab(root, { refBusy: false });
+        await reload(root);
+      } catch (e) {
+        // Un conflicto deja el merge a medias: refrescar para que aparezca el banner.
         failTab(root, e);
         await refreshVolatile(root);
       }
@@ -1206,13 +1228,13 @@ function App() {
             })}
 
             <div className="rebase-box">
-              <div className="branch-group-label">Rebase</div>
+              <div className="branch-group-label">Rebase / Merge</div>
               <select
                 value={active.rebaseTarget}
-                disabled={active.rebasing || active.opState !== null}
+                disabled={active.rebasing || active.refBusy || active.opState !== null}
                 onChange={(ev) => patchTab(active.root, { rebaseTarget: ev.target.value })}
               >
-                <option value="">Elige una base…</option>
+                <option value="">Elige una rama…</option>
                 {Array.from(new Set(active.branches.map((b) => b.name))).map((n) => (
                   <option key={n} value={n}>
                     {n}
@@ -1222,11 +1244,29 @@ function App() {
               <button
                 className={busyClass(active.rebasing)}
                 disabled={
-                  active.rebasing || active.opState !== null || !active.rebaseTarget
+                  active.rebasing ||
+                  active.refBusy ||
+                  active.opState !== null ||
+                  !active.rebaseTarget
                 }
                 onClick={() => void doRebase(active.root, active.rebaseTarget)}
               >
                 Rebase aquí
+              </button>
+              <button
+                className={busyClass(active.refBusy)}
+                disabled={
+                  active.rebasing ||
+                  active.refBusy ||
+                  active.opState !== null ||
+                  !active.rebaseTarget
+                }
+                onClick={() => {
+                  const b = active.branches.find((x) => x.name === active.rebaseTarget);
+                  if (b) void doMerge(active.root, b);
+                }}
+              >
+                Merge aquí
               </button>
             </div>
           </aside>
