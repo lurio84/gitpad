@@ -1509,6 +1509,120 @@ fn merge_limpio_conflicto_abort_y_continue() {
     }
 }
 
+/// Crear/renombrar/borrar ramas y crear/borrar tags, contrastado contra git
+/// real: qué se crea, dónde queda HEAD, y que un nombre que git leería como
+/// opción (`-x`) o que no es un refname válido se rechaza sin tocar nada.
+#[test]
+fn ramas_y_tags_crear_renombrar_borrar() {
+    use super::error::GitError;
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    let dir: PathBuf = std::env::temp_dir().join(format!(
+        "gitpad-refops-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let _guard = scopeguard(&dir);
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .args(args)
+            .current_dir(&dir)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    };
+    let git_out = |args: &[&str]| -> String {
+        let o = Command::new("git").args(args).current_dir(&dir).output().unwrap();
+        String::from_utf8_lossy(&o.stdout).trim().to_string()
+    };
+    if !git(&["init", "-q", "-b", "master"]) {
+        eprintln!("git no disponible, se salta el test");
+        return;
+    }
+    git(&["config", "user.email", "t@t"]);
+    git(&["config", "user.name", "t"]);
+    std::fs::write(dir.join("a.txt"), "1\n").unwrap();
+    git(&["add", "-A"]);
+    git(&["commit", "-q", "-m", "c1"]);
+    let c1 = git_out(&["rev-parse", "HEAD"]);
+    std::fs::write(dir.join("a.txt"), "2\n").unwrap();
+    git(&["commit", "-qam", "c2"]);
+    let names = || -> Vec<String> {
+        let mut v: Vec<String> = super::repo::branches(&dir)
+            .unwrap()
+            .into_iter()
+            .map(|b| b.name)
+            .collect();
+        v.sort();
+        v
+    };
+    let actual = || git_out(&["branch", "--show-current"]);
+
+    // --- crear: en HEAD y en un commit concreto; cambia a la rama nueva ---
+    super::repo::create_branch(&dir, "nueva", None).expect("crear en HEAD");
+    assert_eq!(actual(), "nueva");
+    super::repo::create_branch(&dir, "vieja", Some(&c1)).expect("crear en un commit");
+    assert_eq!(actual(), "vieja");
+    assert_eq!(git_out(&["rev-parse", "HEAD"]), c1);
+    for mala in ["", "-x", "--detach", "a b", "a..b", "x.lock", "a~1"] {
+        assert!(super::repo::create_branch(&dir, mala, None).is_err(), "debe rechazar {mala:?}");
+    }
+    assert!(super::repo::create_branch(&dir, "otra", Some("--orphan")).is_err(), "punto de partida no hex");
+    assert_eq!(actual(), "vieja", "los rechazos no tocan HEAD");
+    assert_eq!(names(), vec!["master", "nueva", "vieja"]);
+
+    // --- renombrar ---
+    super::repo::rename_branch(&dir, "nueva", "renombrada").expect("renombrar");
+    assert_eq!(names(), vec!["master", "renombrada", "vieja"]);
+    assert!(super::repo::rename_branch(&dir, "no-existe", "z").is_err());
+    assert!(super::repo::rename_branch(&dir, "renombrada", "a b").is_err());
+    assert!(super::repo::rename_branch(&dir, "renombrada", "-x").is_err());
+    assert!(super::repo::rename_branch(&dir, "renombrada", "master").is_err(), "no pisa una existente");
+    assert_eq!(names(), vec!["master", "renombrada", "vieja"]);
+
+    // --- borrar: una rama fusionada en HEAD se borra sin forzar ---
+    git(&["checkout", "-q", "master"]);
+    super::repo::delete_branch(&dir, "vieja", false).expect("vieja está en master: fusionada");
+    // …una con un commit propio NO, hasta que se fuerce.
+    git(&["checkout", "-q", "-b", "propia"]);
+    std::fs::write(dir.join("p.txt"), "p\n").unwrap();
+    git(&["add", "-A"]);
+    git(&["commit", "-q", "-m", "solo en propia"]);
+    git(&["checkout", "-q", "master"]);
+    let e = super::repo::delete_branch(&dir, "propia", false).expect_err("no fusionada");
+    assert!(matches!(e, GitError::NotMerged(_)), "kind not_merged, no un error genérico: {e:?}");
+    assert!(names().contains(&"propia".to_string()), "el rechazo no borra nada");
+    super::repo::delete_branch(&dir, "propia", true).expect("forzado");
+    assert!(!names().contains(&"propia".to_string()));
+    // Inexistente, con forma de opción, y la rama activa.
+    assert!(super::repo::delete_branch(&dir, "no-existe", true).is_err());
+    assert!(super::repo::delete_branch(&dir, "-D", true).is_err());
+    assert!(super::repo::delete_branch(&dir, "master", true).is_err(), "no borra la rama activa");
+    assert!(names().contains(&"master".to_string()));
+
+    // --- tags: en HEAD y en un commit; nombres malos; borrar ---
+    super::repo::create_tag(&dir, "v1", None).expect("tag en HEAD");
+    super::repo::create_tag(&dir, "v0", Some(&c1)).expect("tag en un commit");
+    assert_eq!(git_out(&["rev-parse", "v0^{commit}"]), c1);
+    for mala in ["", "-x", "a b", "a..b"] {
+        assert!(super::repo::create_tag(&dir, mala, None).is_err(), "debe rechazar {mala:?}");
+    }
+    assert!(super::repo::create_tag(&dir, "v1", None).is_err(), "no pisa un tag existente");
+    assert!(super::repo::create_tag(&dir, "z", Some("no-hex")).is_err());
+    // El chip sale como tag en el log real.
+    let log = super::repo::log(&dir, 0, 5, &super::repo::LogFilter::None, None).unwrap();
+    assert!(log[0].refs.iter().any(|c| c.name == "v1" && c.kind == "tag"));
+    super::repo::delete_tag(&dir, "v1").expect("borrar tag");
+    assert_eq!(git_out(&["tag", "--list", "v1"]), "");
+    assert!(super::repo::delete_tag(&dir, "v1").is_err(), "ya no existe");
+    assert!(super::repo::delete_tag(&dir, "-d").is_err());
+}
+
 /// Mientras hay una operación en curso, `op_continue`/`op_abort` sin ninguna
 /// pendiente deben fallar con mensaje, no entrar en pánico.
 #[test]

@@ -18,6 +18,11 @@ pub enum GitError {
 
     #[error("salida de git con formato inesperado: {0}")]
     Parse(String),
+
+    /// Borrar una rama cuyos commits no están en la rama actual. La UI lo
+    /// distingue para ofrecer «forzar» solo en este caso.
+    #[error("la rama «{0}» tiene commits que no están en la rama actual")]
+    NotMerged(String),
 }
 
 impl Serialize for GitError {
@@ -32,6 +37,7 @@ impl Serialize for GitError {
             GitError::CommandFailed { .. } => "command_failed",
             GitError::Io(_) => "io",
             GitError::Parse(_) => "parse",
+            GitError::NotMerged(_) => "not_merged",
         };
         let mut s = serializer.serialize_struct("GitError", 2)?;
         s.serialize_field("kind", kind)?;

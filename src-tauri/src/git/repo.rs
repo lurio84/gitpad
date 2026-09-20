@@ -1025,6 +1025,89 @@ pub fn merge(repo: &Path, from: &str) -> GitResult<()> {
     .map(|_| ())
 }
 
+/// Valida un nombre corto de rama (`prefix = "refs/heads/"`) o de tag
+/// (`"refs/tags/"`) ANTES de pasárselo a git. `check-ref-format` da por bueno
+/// `refs/heads/-x` (es un refname legal), pero `git branch -x` lo leería como
+/// opción, así que el `-` inicial se rechaza a mano. Se valida la forma
+/// cualificada y no `check-ref-format --branch`, que además expande `@{-1}`.
+fn check_ref_name(repo: &Path, prefix: &str, name: &str) -> GitResult<()> {
+    let invalido = || GitError::Parse(format!("nombre no válido: «{name}»"));
+    if name.is_empty() || name.starts_with('-') || name.trim() != name {
+        return Err(invalido());
+    }
+    run_git(repo, &["check-ref-format", &format!("{prefix}{name}")]).map_err(|_| invalido())?;
+    Ok(())
+}
+
+/// Un hash de commit como punto de partida (hex, no una opción ni un nombre).
+fn check_start_point(hash: &str) -> GitResult<()> {
+    if hash.is_empty() || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(GitError::Parse(format!("hash de commit inválido: {hash}")));
+    }
+    Ok(())
+}
+
+/// `true` si existe la ref `full` (p. ej. `refs/heads/x`).
+fn ref_exists(repo: &Path, full: &str) -> bool {
+    run_git(repo, &["rev-parse", "--verify", "--quiet", full]).is_ok()
+}
+
+/// Crea una rama y cambia a ella (lo que hace «Crear rama aquí» en GitKraken).
+/// `at`: hash desde el que crearla; `None` = HEAD.
+pub fn create_branch(repo: &Path, name: &str, at: Option<&str>) -> GitResult<()> {
+    check_ref_name(repo, "refs/heads/", name)?;
+    let mut args = vec!["switch", "-c", name];
+    if let Some(h) = at {
+        check_start_point(h)?;
+        args.push(h);
+    }
+    run_git(repo, &args).map(|_| ())
+}
+
+/// Renombra una rama LOCAL. `git branch -m` no pisa una existente (eso sería `-M`).
+pub fn rename_branch(repo: &Path, old: &str, new: &str) -> GitResult<()> {
+    if old.starts_with('-') || !ref_exists(repo, &format!("refs/heads/{old}")) {
+        return Err(GitError::Parse(format!("no existe la rama local «{old}»")));
+    }
+    check_ref_name(repo, "refs/heads/", new)?;
+    run_git(repo, &["branch", "-m", "--end-of-options", old, new]).map(|_| ())
+}
+
+/// Borra una rama LOCAL. Sin `force`, solo si sus commits ya están en HEAD
+/// (`merge-base --is-ancestor`); si no, `NotMerged` para que la UI ofrezca
+/// forzar. El criterio es propio y no el de `branch -d`: ese compara con el
+/// upstream si lo hay y su único aviso es un texto que cambia con el idioma.
+/// Por eso, pasada la comprobación, se borra siempre con `-D`.
+pub fn delete_branch(repo: &Path, name: &str, force: bool) -> GitResult<()> {
+    let full = format!("refs/heads/{name}");
+    if name.starts_with('-') || !ref_exists(repo, &full) {
+        return Err(GitError::Parse(format!("no existe la rama local «{name}»")));
+    }
+    if !force && run_git(repo, &["merge-base", "--is-ancestor", &full, "HEAD"]).is_err() {
+        return Err(GitError::NotMerged(name.to_string()));
+    }
+    run_git(repo, &["branch", "-D", "--end-of-options", name]).map(|_| ())
+}
+
+/// Crea un tag ligero (sin mensaje). `at`: hash; `None` = HEAD. No pisa uno existente.
+pub fn create_tag(repo: &Path, name: &str, at: Option<&str>) -> GitResult<()> {
+    check_ref_name(repo, "refs/tags/", name)?;
+    let mut args = vec!["tag", "--end-of-options", name];
+    if let Some(h) = at {
+        check_start_point(h)?;
+        args.push(h);
+    }
+    run_git(repo, &args).map(|_| ())
+}
+
+/// Borra un tag local. No toca el remoto.
+pub fn delete_tag(repo: &Path, name: &str) -> GitResult<()> {
+    if name.starts_with('-') || !ref_exists(repo, &format!("refs/tags/{name}")) {
+        return Err(GitError::Parse(format!("no existe el tag «{name}»")));
+    }
+    run_git(repo, &["tag", "-d", "--end-of-options", name]).map(|_| ())
+}
+
 /// Rama por defecto del remoto (`refs/remotes/origin/HEAD`), si existe. Solo
 /// la fija un `clone` o un `git remote set-head` explícito — en su ausencia
 /// no se adivina "main" ni "master": la UI ofrece el selector de ramas.
