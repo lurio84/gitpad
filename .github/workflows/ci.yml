@@ -35,5 +35,9 @@ jobs:
       - name: Frontend (tsc + vite build)
         run: npm run build
 
+      # Módulos puros de TS que Node ejecuta directamente (sin runner de JS).
+      - name: Tests unitarios de TS
+        run: npm run test:unit
+
       - name: Tests de Rust
         run: cargo test --manifest-path src-tauri/Cargo.toml

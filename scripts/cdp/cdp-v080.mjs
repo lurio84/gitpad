@@ -99,6 +99,15 @@ const rootP = git(P, "rev-parse", "--show-toplevel");
 const tipP = git(P, "rev-parse", "HEAD");
 const subjectsP = () => git(P, "log", "--format=%s").split("\n");
 
+// Repo Q (word-diff): un cambio de valor, una línea reescrita del todo y una de prosa.
+const Q = initRepo("repoQ");
+put(Q, "code.ts", "const total = 1;\nfoo(alpha, beta, gamma);\nEl gato negro duerme en el sofá viejo.\nsin cambios\n");
+git(Q, "add", "-A");
+git(Q, "commit", "-q", "-m", "q1 base");
+put(Q, "code.ts", "const total = 2;\n1 2 3 4 5 6 7 8 9 10 11 12;\nEl gato blanco duerme en el sofá nuevo.\nsin cambios\n");
+git(Q, "commit", "-qam", "q2 cambia valores");
+const rootQ = git(Q, "rev-parse", "--show-toplevel");
+
 // ---------- CDP ----------
 const list = await (await fetch(`http://localhost:${PORT}/json`)).json();
 const target = list.find(
@@ -507,6 +516,42 @@ try {
   check("reset mixed: HEAD se mueve", await waitGit(() => git(P, "rev-parse", "HEAD") === p2));
   check("reset mixed: nada preparado y el contenido sigue en la carpeta",
     git(P, "diff", "--cached", "--name-only") === "" && existsSync(join(P, "b.txt")));
+
+  // ===== Tanda 4. Word-diff intra-línea =====
+  console.log("\n# 4. Word-diff intra-línea");
+  await reloadWith([rootQ], rootQ);
+  await ev(`(${commitRow("q2 cambia valores")}).click()`);
+  await waitFor("document.querySelector('.entry') ? 1 : null");
+  await ev("Array.from(document.querySelectorAll('.entry')).find((e) => e.textContent.includes('code.ts')).click()");
+  await waitFor("document.querySelector('.diff-wrap') ? 1 : null");
+  const wd = (sel) => ev(`Array.from(document.querySelectorAll(${JSON.stringify(sel)})).map((e) => e.textContent)`);
+  const modo = async (texto) => {
+    await ev(`Array.from(document.querySelectorAll('.diff-toolbar button')).find((b) => b.textContent.trim() === ${JSON.stringify(texto)}).click()`);
+    await sleep(300);
+  };
+
+  await modo("Side by side");
+  check("lado a lado: la palabra que cambia se marca en el lado nuevo (2, blanco, nuevo)",
+    JSON.stringify(await wd(".split-text.add .wd")) === JSON.stringify(["2", "blanco", "nuevo"]), JSON.stringify(await wd(".split-text.add .wd")));
+  check("lado a lado: y en el viejo (1, negro, viejo)",
+    JSON.stringify(await wd(".split-text.del .wd")) === JSON.stringify(["1", "negro", "viejo"]), JSON.stringify(await wd(".split-text.del .wd")));
+  const filaNueva = await wd(".split-text.add");
+  check("lado a lado: la línea reescrita del todo NO se resalta (sería ruido)",
+    filaNueva.includes("1 2 3 4 5 6 7 8 9 10 11 12;") &&
+      (await ev("Array.from(document.querySelectorAll('.split-text.add')).find((e) => e.textContent.startsWith('1 2 3'))?.querySelector('.wd') === null")));
+  check("lado a lado: el texto visible queda intacto con los resaltados dentro",
+    filaNueva.includes("const total = 2;") && filaNueva.includes("El gato blanco duerme en el sofá nuevo."), filaNueva.join(" ⏎ "));
+  check("lado a lado: la línea sin cambios no lleva resaltado", (await ev("document.querySelectorAll('.split-text.ctx .wd').length")) === 0);
+
+  await modo("Unified");
+  check("unificada: mismas palabras marcadas en las líneas añadidas",
+    JSON.stringify(await wd(".dl.add .wd")) === JSON.stringify(["2", "blanco", "nuevo"]), JSON.stringify(await wd(".dl.add .wd")));
+  check("unificada: y en las borradas", JSON.stringify(await wd(".dl.del .wd")) === JSON.stringify(["1", "negro", "viejo"]), JSON.stringify(await wd(".dl.del .wd")));
+  const lineasAdd = await wd(".dl.add");
+  check("unificada: conserva el «+» y el texto exacto de la línea", lineasAdd.includes("+const total = 2;") && lineasAdd.includes("+El gato blanco duerme en el sofá nuevo."), lineasAdd.join(" ⏎ "));
+  check("el resaltado tiene fondo propio (no es solo un span)",
+    (await ev("getComputedStyle(document.querySelector('.dl.add .wd')).backgroundColor")) !== "rgba(0, 0, 0, 0)");
+  await modo("Side by side");
 } finally {
   await restoreLS();
   ws.close();

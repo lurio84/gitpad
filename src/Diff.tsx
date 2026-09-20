@@ -4,6 +4,7 @@
 // (dos columnas emparejadas, el modo por defecto de Bernardo en GitKraken).
 
 import { useEffect, useState } from "react";
+import { wordDiff, type Seg } from "./wordDiff";
 
 type ViewMode = "unified" | "split";
 
@@ -25,6 +26,9 @@ interface BodyLine {
   text: string;
   oldLine: number | null;
   newLine: number | null;
+  /** Palabras que cambian respecto a su pareja (solo en add/del emparejadas y
+   * lo bastante parecidas; sin `+`/`-` inicial). Ver `wordDiff.ts`. */
+  segs?: Seg[];
 }
 
 interface DiffFile {
@@ -121,8 +125,58 @@ function parse(raw: string): DiffFile[] {
       f.body.push({ kind: "ctx", text, oldLine: oldLine++, newLine: newLine++ });
     }
   }
-  return files.filter(
+  const result = files.filter(
     (f) => f.header.length > 0 || f.binaryNote || f.body.length > 0,
+  );
+  for (const f of result) annotateWords(f.body);
+  return result;
+}
+
+/** En cada bloque de borradas + añadidas empareja la i-ésima con la i-ésima (el
+ * mismo criterio que `pairBody`, para que lo resaltado coincida con lo que la
+ * vista lado a lado pone en una misma fila) y marca las palabras que cambian. */
+function annotateWords(body: BodyLine[]): void {
+  let dels: BodyLine[] = [];
+  let adds: BodyLine[] = [];
+  const flush = () => {
+    const n = Math.min(dels.length, adds.length);
+    for (let i = 0; i < n; i++) {
+      const d = wordDiff(dels[i].text.slice(1), adds[i].text.slice(1));
+      if (d) {
+        dels[i].segs = d.a;
+        adds[i].segs = d.b;
+      }
+    }
+    dels = [];
+    adds = [];
+  };
+  for (const l of body) {
+    if (l.kind === "del") {
+      if (adds.length > 0) flush();
+      dels.push(l);
+    } else if (l.kind === "add") {
+      adds.push(l);
+    } else {
+      flush();
+    }
+  }
+  flush();
+}
+
+/** Texto de una línea con las palabras cambiadas resaltadas. */
+function Segs({ segs }: { segs: Seg[] }) {
+  return (
+    <>
+      {segs.map((s, i) =>
+        s.changed ? (
+          <span key={i} className="wd">
+            {s.text}
+          </span>
+        ) : (
+          s.text
+        ),
+      )}
+    </>
   );
 }
 
@@ -248,7 +302,16 @@ function UnifiedView({ files }: { files: DiffFile[] }) {
           <FileNotes file={f} />
           {f.body.map((l, i) => (
             <div key={i} className={`dl ${l.kind}`}>
-              {l.text === "" ? " " : l.text}
+              {l.segs ? (
+                <>
+                  {l.text[0]}
+                  <Segs segs={l.segs} />
+                </>
+              ) : l.text === "" ? (
+                " "
+              ) : (
+                l.text
+              )}
             </div>
           ))}
         </div>
@@ -298,7 +361,9 @@ function SplitHalf({ line, side }: { line: BodyLine | null; side: "left" | "righ
   return (
     <>
       <span className="split-ln">{ln}</span>
-      <span className={`split-text ${line.kind}`}>{line.text.slice(1) || " "}</span>
+      <span className={`split-text ${line.kind}`}>
+        {line.segs ? <Segs segs={line.segs} /> : line.text.slice(1) || " "}
+      </span>
     </>
   );
 }

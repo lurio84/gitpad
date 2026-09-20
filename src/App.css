@@ -1374,3 +1374,19 @@ body.resizing {
   opacity: 0.6;
   cursor: default;
 }
+
+/* Palabras que cambian dentro de una línea (word-diff). Por encima del fondo de
+   la línea añadida/borrada, con el mismo tinte pero más denso. */
+.wd {
+  border-radius: 2px;
+}
+
+.dl.add .wd,
+.split-text.add .wd {
+  background: color-mix(in srgb, var(--add-fg) 30%, transparent);
+}
+
+.dl.del .wd,
+.split-text.del .wd {
+  background: color-mix(in srgb, var(--del-fg) 30%, transparent);
+}
