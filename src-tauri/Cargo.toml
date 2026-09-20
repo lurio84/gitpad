@@ -1,6 +1,6 @@
 [package]
 name = "gitpad"
-version = "0.6.0"
+version = "0.7.0"
 description = "Cliente Git de escritorio ligero"
 authors = ["lurio84"]
 license = "MIT"

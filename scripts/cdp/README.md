@@ -51,6 +51,14 @@ de depuración de WebView2.
      solapamiento entre `.split-ln`/`.split-text`, y si el panel necesita scroll
      horizontal (avisa, no falla — un commit con líneas muy largas sí lo necesita
      legítimamente).
+   - `node cdp-v070.mjs` — v0.7.0 completa, **sin argumentos** (crea sus dos repos de
+     prueba en el directorio temporal y los borra): commit con Resumen+Descripción y
+     amend, reordenar pestañas, paneles redimensionables con su clamp, modo árbol y
+     «Todos los archivos». Es el primero que **respalda y restaura `localStorage`**
+     (los demás pisan las pestañas reales sin devolverlas) y que **sale con código 1**
+     si falla un check o hay un error de consola. Acepta dev y producción. El
+     reordenado de pestañas usa drag nativo interceptado por CDP: cubre la lógica y
+     `draggable`, pero no el flag `dragDropEnabled` de Tauri, que va por debajo de CDP.
    - Aceptan como target tanto `localhost:1420` (dev) como `tauri.localhost`
      (binario de producción), sin tocar nada: `cdp-split-diff`, `cdp-graph`,
      `cdp-row-height`, `cdp-log-view` y `cdp-shots`. Los demás (`cdp-e2e`,

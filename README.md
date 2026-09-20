@@ -36,6 +36,12 @@ buscar commits por mensaje o por contenido, fetch/pull/push, stash, cherry-pick 
 con detección de conflicto y un banner para continuar o abortar la operación a
 medio camino.
 
+Para revisar: los archivos de un commit en lista o en árbol, y una pestaña
+«Todos los archivos» con el árbol completo del proyecto en ese commit y un visor
+del contenido de cada archivo. El cuadro de commit separa Resumen y Descripción.
+Los paneles laterales se ensanchan arrastrando su borde y las pestañas se
+reordenan arrastrándolas.
+
 ## Fuera de alcance (v0)
 
 Editor de conflictos 3-vías, rebase interactivo, PRs/issues de GitHub in-app,
@@ -54,8 +60,10 @@ npm run tauri build    # instalador NSIS de producción
 npm run icon           # regenera los iconos desde src-tauri/icons/source/gitpad.svg
 ```
 
-La ventana no baja de 900 px de ancho: por debajo, las tres columnas no caben y
-el panel del diff se queda sin espacio.
+La ventana no baja de 900 px de ancho: es lo que suman los dos paneles laterales
+en su mínimo (140 + 220) y el suelo de las dos columnas centrales (lista de
+commits 220 + diff 260). Los anchos arrastrados se recortan contra el ancho de
+ventana (`src/usePanels.ts`) para que el diff nunca se quede sin espacio.
 
 `npm run icon` regenera todos los iconos desde los SVG de `src-tauri/icons/source`.
 `tauri icon` acepta una sola fuente y a 16 px el trazo del icono principal se
@@ -77,6 +85,9 @@ src/                     frontend React
   App.tsx                pestañas, estado, stage/commit, ramas, búsqueda
   Graph.tsx               grafo de carriles (SVG, puro frontend)
   Diff.tsx                visor de diff
+  FileTree.tsx            árbol plegable de rutas (archivos del commit y «Todos los archivos»)
+  FileView.tsx            visor del contenido de un archivo en un commit
+  usePanels.ts            anchos arrastrables de los paneles laterales, con clamp
   App.css                estilos y tema oscuro
   api.ts                 wrappers tipados sobre invoke()
   types.ts               espejo de las structs de Rust

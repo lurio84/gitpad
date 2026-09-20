@@ -4,6 +4,37 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-20
+
+Cuarta ronda de feedback de Bernardo («Review 0.6.0»): los cinco puntos.
+Verificado contra la app real por CDP (`scripts/cdp/cdp-v070.mjs`, 0 errores
+de consola) y contra el binario de producción.
+
+### Added
+
+- **Resumen y Descripción** en el cuadro de commit (como GitKraken). Sin
+  descripción se guarda solo el resumen; una descripción de solo espacios cuenta
+  como vacía. Al marcar *amend* se precargan resumen y descripción del commit
+  que se reescribe (antes se perdía el cuerpo); al desmarcar vuelve lo que
+  hubiera escrito.
+- **Paneles laterales redimensionables** arrastrando su borde (también con las
+  flechas del teclado; doble clic restaura el ancho por defecto). El ancho se
+  recuerda, y el panel central del diff conserva siempre un mínimo aunque el
+  ancho guardado sea de otra pantalla o se achique la ventana.
+- **Reordenar pestañas** arrastrándolas. El orden se recuerda.
+- **Modo Lista / Árbol** en «Archivos del commit», recordado entre sesiones.
+- **Todos los archivos** (el «View All Files» de GitKraken): pestaña en el panel
+  derecho con el árbol completo del proyecto en el commit seleccionado (o en
+  `HEAD` si no hay ninguno) y un visor con el contenido del archivo tal como
+  estaba en ese commit. Archivos binarios y de más de 2 MB se avisan en vez de
+  volcarse.
+
+### Changed
+
+- `dragDropEnabled: false` en la ventana: en Windows, Tauri intercepta el
+  arrastre dentro de la página y rompe el drag & drop HTML5. gitpad no usa el
+  arrastre de archivos desde el sistema.
+
 ## [0.6.0] - 2026-09-19
 
 Repaso visual con identidad propia y tres huecos del flujo de revisión de
