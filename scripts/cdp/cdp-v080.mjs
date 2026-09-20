@@ -393,6 +393,8 @@ try {
   // 2h. Nombres inválidos: error visible y nada cambia.
   const antes2 = branchesN();
   await answer("a b");
+  // El «＋» está deshabilitado mientras dura la operación anterior: se espera a que se habilite.
+  await waitFor("document.querySelector('.branches-head button')?.disabled === false ? 1 : null");
   await ev("document.querySelector('.branches-head button').click()");
   check("nombre inválido: aparece el error", await waitFor("document.querySelector('.error') ? 1 : null").then(() => true, () => false));
   check("nombre inválido: no se crea nada", branchesN() === antes2);
@@ -599,6 +601,17 @@ try {
   check("commits: la fila seleccionada lleva aria-current", (await ev("document.querySelector('.commit.sel')?.getAttribute('aria-current')")) === "true");
   check("commits: la parada de Tab pasa a la fila seleccionada",
     (await ev("document.querySelector('.commit.sel')?.getAttribute('tabindex')")) === "0" && (await ev("document.querySelectorAll('.commit[tabindex=\"0\"]').length")) === 1);
+
+  // El menú contextual también se abre con la tecla de menú (sin ratón).
+  await ev("document.querySelector('.commit.sel').focus()");
+  await press("ContextMenu", "ContextMenu", 93);
+  check("teclado: la tecla de menú abre el menú contextual del commit enfocado",
+    await waitFor("document.querySelector('.ctx-menu') ? 1 : null").then(() => true, () => false));
+  check("teclado: y el foco entra en el menú", await ev("document.activeElement?.closest('.ctx-menu') !== null"));
+  await press("Escape", "Escape", 27);
+  check("teclado: Escape lo cierra y devuelve el foco a la fila",
+    (await ev("!!document.querySelector('.ctx-menu')")) === false && (await ev("document.activeElement?.classList.contains('commit') ?? false")) === true,
+    await ev("document.activeElement?.className ?? '(nada)'"));
 
   // Un archivo del commit: Enter carga su diff.
   await waitFor("document.querySelector('.entry') ? 1 : null");

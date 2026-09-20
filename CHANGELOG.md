@@ -4,6 +4,71 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-09-20
+
+Cierre de todo lo pendiente tras la v0.7.0: los huecos de producto que más
+probablemente llevaran a abrir GitKraken, la deuda técnica, lo aplazado de las
+versiones anteriores y una auditoría del código previo. Verificado contra la
+app real por CDP (`scripts/cdp/cdp-v080.mjs`, 113 checks, 0 errores de consola),
+`cargo test` (42 tests), `npm run test:unit` y CI en Windows.
+
+### Added
+
+- **Menú contextual** (clic derecho): en una rama (Checkout, Merge, Renombrar,
+  Borrar), en un commit (Crear rama o tag aquí, Revert, Reset soft/mixed/hard),
+  en un tag (Borrar) y en un archivo (Ver historial). También con teclado
+  (Shift+F10 o la tecla de menú). Un **＋** visible junto a «Ramas» crea una
+  rama en HEAD sin depender del clic derecho.
+- **Merge explícito**: «Merge aquí» junto al rebase, para resolver una
+  divergencia (`pull` sigue siendo `--ff-only`). Un conflicto reutiliza el banner
+  de Continuar/Abortar.
+- **Crear, renombrar y borrar ramas**; **crear y borrar tags** (ligeros y
+  locales; el push de tags queda fuera). Borrar una rama no fusionada pide una
+  segunda confirmación antes de forzar.
+- **Historial de un archivo**: sigue renombrados y no muestra líneas de grafo
+  (los padres reales no están en la lista filtrada). Es un lente pasajero, no
+  se recuerda.
+- **Revert** de un commit (no de una fusión) y **Reset** soft/mixed/hard. La
+  confirmación de `--hard` **nombra** los archivos con cambios sin guardar que
+  se pierden. El banner reconoce «Revert en curso».
+- **Resaltado de palabras dentro de una línea** (word-diff) en las vistas lado a
+  lado y unificada. No resalta líneas que se parecen poco ni las enormes.
+- **Teclado y ARIA**: commits, archivos, ramas y pestañas se alcanzan con Tab y
+  se activan con Enter/Espacio; en la lista de commits, una sola parada de Tab y
+  flechas ↑/↓/Inicio/Fin. Pestañas con `tablist`/`tab`/`aria-selected`.
+- CI en GitHub Actions (Windows): build del frontend, `test:unit` y `cargo test`.
+- Registro de cierres inesperados en `%LOCALAPPDATA%\com.lurio84.gitpad\gitpad.log`
+  (con `panic = "abort"` no quedaba ningún rastro).
+
+### Changed
+
+- Los chips de refs traen su tipo del backend (`--decorate=full`): una rama y un
+  tag con el mismo nombre en el mismo commit ya no se confunden (el tag
+  desaparecía), ni una rama local con `/` con una remota.
+- La lista de commits vacía dice por qué («Ningún commit coincide con el
+  filtro.») y las secciones sin nada dicen «Nada preparado» / «Nada sin preparar»
+  en vez de un guion.
+- Descartar cambios nombra los archivos que se pierden.
+- El visor de «Todos los archivos» no lee blobs de más de 64 MiB y explica que
+  un submódulo no se puede mostrar en vez de enseñar el `fatal` de git.
+
+### Fixed
+
+- **Rutas con corchetes**: un pathspec normal trata `[1]` como glob, así que
+  preparar `a[1].txt` también preparaba `a1.txt`, y **descartar** se llevaba los
+  cambios (o borraba el archivo sin seguir) de su hermano `a1.txt`. Ahora las
+  rutas son literales en stage, unstage, descartar y los diffs.
+- Un solo commit con el separador de campos en su mensaje rompía el log entero
+  y el repo dejaba de abrirse.
+- `checkout`, `rebase` y `push` no leen una rama o un remoto como opción de git
+  (`--end-of-options`).
+- Siete scripts de verificación CDP pisaban las pestañas reales al probar el
+  binario de producción; ahora respaldan y restauran `localStorage`.
+
+### Requisitos
+
+- Git ≥ 2.24 (por `--end-of-options`).
+
 ## [0.7.0] - 2026-09-20
 
 Cuarta ronda de feedback de Bernardo («Review 0.6.0»): los cinco puntos.

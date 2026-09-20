@@ -32,21 +32,32 @@ Abrir repos en pestañas (varias a la vez), ver el grafo de ramas con commits
 entrelazados, revisar el diff de un commit o de un archivo, hacer stage/unstage,
 descartar cambios y commit, ver y hacer checkout de ramas (o ver solo el
 historial de una), revisar también los commits de merge, cargar más historia,
-buscar commits por mensaje o por contenido, fetch/pull/push, stash, cherry-pick y rebase simple —
-con detección de conflicto y un banner para continuar o abortar la operación a
-medio camino.
+buscar commits por mensaje o por contenido, fetch/pull/push, stash, cherry-pick,
+rebase simple y merge — con detección de conflicto y un banner para continuar o
+abortar la operación a medio camino.
+
+Con el clic derecho: crear, renombrar y borrar ramas; crear y borrar tags
+(locales); crear una rama o un tag en cualquier commit; revert; reset
+soft/mixed/hard (la confirmación de `--hard` nombra lo que se pierde); y el
+historial de un solo archivo, que sigue los renombrados.
 
 Para revisar: los archivos de un commit en lista o en árbol, y una pestaña
 «Todos los archivos» con el árbol completo del proyecto en ese commit y un visor
 del contenido de cada archivo. El cuadro de commit separa Resumen y Descripción.
 Los paneles laterales se ensanchan arrastrando su borde y las pestañas se
-reordenan arrastrándolas.
+reordenan arrastrándolas. El diff resalta las palabras que cambian dentro de una
+línea. Todo se maneja también con el teclado (Tab, Enter/Espacio, flechas en la
+lista de commits, Shift+F10 para el menú contextual).
 
 ## Fuera de alcance (v0)
 
 Editor de conflictos 3-vías, rebase interactivo, PRs/issues de GitHub in-app,
-LFS, submódulos, gestión de worktrees (crear/mover/borrar — sí se soportan de
-forma pasiva: abrirlos y no romper el checkout), blame, macOS/Linux.
+LFS, submódulos (aparecen como una ruta más y avisan de que no se pueden
+mostrar), gestión de worktrees (crear/mover/borrar — sí se soportan de forma
+pasiva: abrirlos y no romper el checkout), blame, comparar ramas, push de tags,
+clonar, macOS/Linux.
+
+Requiere Git ≥ 2.24.
 
 ## Desarrollo
 
@@ -55,7 +66,8 @@ Requisitos: Node ≥ 20, Rust estable, MSVC Build Tools (C++), WebView2.
 ```bash
 npm install
 npm run tauri dev      # app en modo desarrollo
-cd src-tauri && cargo test   # tests de parseo
+cd src-tauri && cargo test   # parseo y operaciones contra repos git reales
+npm run test:unit      # módulos puros de TS (word-diff), sin runner de JS
 npm run tauri build    # instalador NSIS de producción
 npm run icon           # regenera los iconos desde src-tauri/icons/source/gitpad.svg
 ```

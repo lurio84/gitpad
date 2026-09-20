@@ -28,6 +28,18 @@ export function ContextMenu({ menu, onClose }: { menu: MenuState; onClose: () =>
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ x: menu.x, y: menu.y });
 
+  // Al cerrar, el foco vuelve a donde estaba (la fila desde la que se abrió con
+  // teclado); si esa fila ya no existe, no pasa nada. Se captura DURANTE el render:
+  // el efecto que enfoca la primera opción corre antes que cualquier `useEffect`,
+  // y ahí `activeElement` ya sería el propio menú.
+  const previo = useRef<Element | null>(document.activeElement);
+  useEffect(() => {
+    return () => {
+      const el = previo.current;
+      if (el instanceof HTMLElement && el.isConnected) el.focus();
+    };
+  }, []);
+
   // Encajar en la ventana una vez medido (ancho/alto reales del menú).
   useLayoutEffect(() => {
     const el = ref.current;

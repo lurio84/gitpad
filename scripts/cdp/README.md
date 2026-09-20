@@ -58,6 +58,14 @@ de depuración de WebView2.
      consola. Acepta dev y producción. El
      reordenado de pestañas usa drag nativo interceptado por CDP: cubre la lógica y
      `draggable`, pero no el flag `dragDropEnabled` de Tauri, que va por debajo de CDP.
+   - `node cdp-v080.mjs` — v0.8.0 completa, **sin argumentos** (crea sus repos de
+     prueba y los borra): merge (limpio, conflicto+abortar, conflicto+continuar), ramas
+     y tags con menú contextual, historial de un archivo, revert y reset, word-diff,
+     teclado/ARIA (con eventos de teclado reales de CDP), estados vacíos y la
+     confirmación de descartar. 113 checks; sale con código 1 si falla alguno o hay un
+     error de consola. Restaura `localStorage` (vía `_ls.mjs`). Acepta dev y producción.
+     Los `window.confirm`/`prompt` se sobrescriben en la página; el `prompt` nativo se
+     comprobó aparte con un diálogo real de WebView2.
    - Aceptan como target tanto `localhost:1420` (dev) como `tauri.localhost`
      (binario de producción), sin tocar nada: `cdp-split-diff`, `cdp-graph`,
      `cdp-row-height`, `cdp-log-view` y `cdp-shots`. Los demás (`cdp-e2e`,
