@@ -4,6 +4,7 @@ on:
   push:
     branches: [master]
   pull_request:
+  workflow_dispatch:
 
 # Windows a propósito: `cargo test` compila el crate de Tauri entero y en Linux
 # exige webkit2gtk/GTK. El proyecto es solo Windows (WebView2), así que el
