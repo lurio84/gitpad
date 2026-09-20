@@ -1,3 +1,4 @@
+mod crashlog;
 mod git;
 
 use std::path::Path;
@@ -176,6 +177,9 @@ fn commit(path: String, message: String, amend: bool) -> GitResult<String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    if let Some(dir) = crashlog::default_dir() {
+        crashlog::install(dir);
+    }
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
