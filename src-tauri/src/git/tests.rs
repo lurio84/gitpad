@@ -1703,6 +1703,77 @@ fn log_de_un_archivo_sigue_renombrados_y_es_literal() {
     }
 }
 
+/// Un blob por encima del tope alto no se lee: `cat-file -s` da el tamaño sin
+/// materializarlo. Con el tope inyectado pequeño, para no crear 64 MiB en disco.
+/// Por debajo del tope todo sigue igual (texto recortado a `MAX_FILE_BYTES`).
+#[test]
+fn file_content_no_lee_blobs_enormes() {
+    use super::repo::{file_content_capped, MAX_FILE_BYTES};
+    let Some(dir) = repo_temporal("hugeblob") else {
+        eprintln!("git no disponible, se salta el test");
+        return;
+    };
+    let _guard = scopeguard(&dir);
+    let git_out = |args: &[&str]| -> String {
+        let o = std::process::Command::new("git").args(args).current_dir(&dir).output().unwrap();
+        String::from_utf8_lossy(&o.stdout).trim().to_string()
+    };
+    let sube = |f: &str, n: usize| {
+        std::fs::write(dir.join(f), "a".repeat(n)).unwrap();
+        std::process::Command::new("git").args(["add", "-A"]).current_dir(&dir).status().unwrap();
+    };
+    sube("mediano.txt", MAX_FILE_BYTES + 1000); // > 2 MiB: se recorta
+    sube("enorme.txt", MAX_FILE_BYTES * 2); // > tope inyectado: no se lee
+    std::process::Command::new("git").args(["commit", "-q", "-m", "c"]).current_dir(&dir).status().unwrap();
+    let h = git_out(&["rev-parse", "HEAD"]);
+    let tope = (MAX_FILE_BYTES + 5000) as u64;
+
+    let m = file_content_capped(&dir, &h, "mediano.txt", tope).expect("mediano");
+    assert!(m.truncated && m.text.as_ref().unwrap().len() == MAX_FILE_BYTES, "por debajo del tope sigue recortando");
+    assert_eq!(m.bytes, (MAX_FILE_BYTES + 1000) as u64);
+
+    let e = file_content_capped(&dir, &h, "enorme.txt", tope).expect("enorme");
+    assert!(e.text.is_none(), "un blob por encima del tope no se lee");
+    assert!(e.truncated && !e.binary, "se marca como omitido, no como binario");
+    assert_eq!(e.bytes, (MAX_FILE_BYTES * 2) as u64, "pero el tamaño real sí se informa");
+}
+
+/// Un submódulo (gitlink, modo 160000) apunta a un commit que no está en este
+/// repo: `git show`/`cat-file` fallan con un `fatal` críptico. Debe salir un
+/// mensaje legible que lo nombre, y un archivo inexistente NO se disfraza de submódulo.
+#[test]
+fn file_content_de_un_submodulo_da_mensaje_legible() {
+    let Some(dir) = repo_temporal("gitlink") else {
+        eprintln!("git no disponible, se salta el test");
+        return;
+    };
+    let _guard = scopeguard(&dir);
+    let git = |args: &[&str]| {
+        std::process::Command::new("git").args(args).current_dir(&dir).status().unwrap().success()
+    };
+    std::fs::write(dir.join("a.txt"), "a\n").unwrap();
+    git(&["add", "-A"]);
+    // Un gitlink sin submódulo real detrás: basta el modo 160000 y un sha cualquiera.
+    git(&["update-index", "--add", "--cacheinfo", "160000,1234567890abcdef1234567890abcdef12345678,vendor/lib"]);
+    git(&["commit", "-q", "-m", "con submódulo"]);
+    let h = String::from_utf8_lossy(
+        &std::process::Command::new("git").args(["rev-parse", "HEAD"]).current_dir(&dir).output().unwrap().stdout,
+    )
+    .trim()
+    .to_string();
+
+    let e = super::repo::file_content(&dir, &h, "vendor/lib").expect_err("un submódulo no tiene contenido");
+    let msg = e.to_string();
+    assert!(msg.contains("submódulo") && msg.contains("vendor/lib") && msg.contains("1234567"), "mensaje legible: {msg}");
+    assert!(!msg.contains("fatal"), "sin el fatal crudo de git: {msg}");
+
+    // Un archivo que no existe sigue dando el error de git, no el de submódulo.
+    let e2 = super::repo::file_content(&dir, &h, "no/existe.txt").expect_err("no existe");
+    assert!(!e2.to_string().contains("submódulo"), "no es un submódulo: {e2}");
+    // Y un archivo normal sigue funcionando.
+    assert!(super::repo::file_content(&dir, &h, "a.txt").is_ok());
+}
+
 /// Crea un repo temporal con git configurado, para los tests de reset/revert.
 fn repo_temporal(prefijo: &str) -> Option<std::path::PathBuf> {
     let dir = std::env::temp_dir().join(format!(

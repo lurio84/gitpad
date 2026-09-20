@@ -599,6 +599,17 @@ pub fn tree_files(repo: &Path, hash: &str) -> GitResult<Vec<String>> {
         .collect())
 }
 
+/// El commit al que apunta `file` si en `hash` es un gitlink (submódulo, modo
+/// 160000), y `None` si es otra cosa o no existe. `ls-tree` línea a línea:
+/// `<modo> commit <sha>\t<ruta>`. Literal, como el resto de rutas de la UI.
+fn gitlink_commit(repo: &Path, hash: &str, file: &str) -> Option<String> {
+    let out = run_git(repo, &["--literal-pathspecs", "ls-tree", hash, "--", file]).ok()?;
+    let meta = out.lines().next()?.split('\t').next()?;
+    let mut campos = meta.split_whitespace();
+    let (modo, tipo, sha) = (campos.next()?, campos.next()?, campos.next()?);
+    (modo == "160000" && tipo == "commit").then(|| sha.to_string())
+}
+
 /// Contenido de un archivo tal y como estaba en un commit.
 ///
 /// El spec va como UN solo argumento `<hash>:<ruta>`: por eso una ruta que
@@ -615,16 +626,51 @@ pub fn tree_files(repo: &Path, hash: &str) -> GitResult<Vec<String>> {
 ///   un identificador; `status()` y `commit_files` son estrictos a propósito
 ///   porque lo que decodifican son rutas con las que luego se opera.
 pub fn file_content(repo: &Path, hash: &str, file: &str) -> GitResult<FileContent> {
+    file_content_capped(repo, hash, file, HUGE_FILE_BYTES)
+}
+
+/// Por encima de esto ni se lee el blob (ver `file_content_capped`).
+pub const HUGE_FILE_BYTES: u64 = 64 * 1024 * 1024;
+
+/// `file_content` con el tope alto inyectado (los tests lo bajan para no crear
+/// 64 MiB en disco). `git cat-file -s` da el tamaño sin materializar el blob:
+/// uno mayor que `huge` se devuelve como omitido (`text: None`, `truncated`,
+/// sin `binary`) en vez de cargarlo entero en memoria solo para recortarlo a
+/// `MAX_FILE_BYTES`. Por debajo del tope, el comportamiento no cambia.
+pub(super) fn file_content_capped(
+    repo: &Path,
+    hash: &str,
+    file: &str,
+    huge: u64,
+) -> GitResult<FileContent> {
     if hash.is_empty() || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err(GitError::Parse(format!("hash de commit inválido: {hash}")));
     }
     if file.is_empty() || file.contains('\0') {
         return Err(GitError::Parse("ruta de archivo inválida".into()));
     }
-    // TODO(v0.8): `run_git_bytes` materializa el blob entero en memoria antes de
-    // aplicar el tope; un pre-chequeo con `git cat-file -s <hash>:<ruta>` lo
-    // evitaría.
-    let bytes = run_git_bytes(repo, &["show", &format!("{hash}:{file}")])?;
+    let spec = format!("{hash}:{file}");
+    let size: u64 = match run_git(repo, &["cat-file", "-s", &spec]) {
+        Ok(s) => s
+            .trim()
+            .parse()
+            .map_err(|_| GitError::Parse(format!("tamaño ilegible para {file}")))?,
+        Err(e) => {
+            // Un submódulo (gitlink) apunta a un commit que no está en este repo:
+            // `cat-file` falla con un `fatal` críptico. Solo se mira si falla.
+            return Err(match gitlink_commit(repo, hash, file) {
+                Some(sha) => GitError::Parse(format!(
+                    "«{file}» es un submódulo (commit {}): gitpad no muestra su contenido",
+                    &sha[..sha.len().min(7)]
+                )),
+                None => e,
+            });
+        }
+    };
+    if size > huge {
+        return Ok(FileContent { text: None, binary: false, truncated: true, bytes: size });
+    }
+    let bytes = run_git_bytes(repo, &["show", &spec])?;
     let total = bytes.len() as u64;
 
     if bytes.iter().take(8000).any(|b| *b == 0) {

@@ -34,7 +34,16 @@ export function FileView({ path, content, loading }: Props) {
       </div>
     );
 
-  const text = content.text ?? "";
+  // Un blob por encima del tope alto ni se lee (`text: null` sin `binary`): sin
+  // este caso caería en «Archivo vacío», que sería mentira.
+  if (content.text === null)
+    return (
+      <div className="diff-empty">
+        Archivo demasiado grande ({humanSize(content.bytes)}) — no se muestra.
+      </div>
+    );
+
+  const text = content.text;
   if (text === "") return <div className="diff-empty">Archivo vacío.</div>;
 
   // Un salto de línea final no abre una línea nueva vacía.

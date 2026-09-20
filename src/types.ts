@@ -87,10 +87,10 @@ export interface CommitFile {
 
 /** Contenido de un archivo en un commit (`git show <hash>:<ruta>`). */
 export interface FileContent {
-  /** Texto del archivo, o `null` si es binario. */
+  /** Texto del archivo, o `null` si es binario o demasiado grande para leerlo (>64 MiB). */
   text: string | null;
   binary: boolean;
-  /** `true` si se recortó a 2 MiB. */
+  /** `true` si se recortó a 2 MiB (o, con `text: null`, si ni se leyó por su tamaño). */
   truncated: boolean;
   /** Tamaño real del blob completo, aunque `text` vaya recortado. */
   bytes: number;
