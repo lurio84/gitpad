@@ -24,12 +24,15 @@ fn get_log(
     filter_mode: String,
     filter_query: String,
     filter_branch: Option<String>,
+    filter_file: Option<String>,
 ) -> GitResult<Vec<Commit>> {
     let query = filter_query.trim();
-    let filter = match (filter_mode.as_str(), query) {
-        (_, "") => LogFilter::None,
-        ("message", q) => LogFilter::Message(q.to_string()),
-        ("content", q) => LogFilter::Content(q.to_string()),
+    let filter = match (filter_file, filter_mode.as_str(), query) {
+        // El lente de archivo manda: se cambia de lente en el frontend, no se combina.
+        (Some(f), _, _) => LogFilter::File(f),
+        (None, _, "") => LogFilter::None,
+        (None, "message", q) => LogFilter::Message(q.to_string()),
+        (None, "content", q) => LogFilter::Content(q.to_string()),
         _ => LogFilter::None,
     };
     git::repo::log(Path::new(&path), skip, count, &filter, filter_branch.as_deref())

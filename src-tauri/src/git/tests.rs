@@ -1623,6 +1623,86 @@ fn ramas_y_tags_crear_renombrar_borrar() {
     assert!(super::repo::delete_tag(&dir, "-d").is_err());
 }
 
+/// Historial de un archivo: solo los commits que lo tocan, atravesando un
+/// renombrado (`--follow`), con `--all` (un archivo puede cambiar en otra rama)
+/// y con la ruta tomada LITERAL: `[x].txt` es un glob para un pathspec normal.
+#[test]
+fn log_de_un_archivo_sigue_renombrados_y_es_literal() {
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    let dir: PathBuf = std::env::temp_dir().join(format!(
+        "gitpad-filelog-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let _guard = scopeguard(&dir);
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .args(args)
+            .current_dir(&dir)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    };
+    if !git(&["init", "-q", "-b", "master"]) {
+        eprintln!("git no disponible, se salta el test");
+        return;
+    }
+    git(&["config", "user.email", "t@t"]);
+    git(&["config", "user.name", "t"]);
+    git(&["config", "core.autocrlf", "false"]);
+    let w = |f: &str, c: &str, m: &str| {
+        std::fs::write(dir.join(f), c).unwrap();
+        git(&["add", "-A"]);
+        git(&["commit", "-q", "-m", m]);
+    };
+    // El contenido es largo a propósito: la detección de renombrado necesita similitud.
+    let base = "uno\ndos\ntres\ncuatro\ncinco\nseis\nsiete\nocho\n";
+    w("a.txt", base, "A crea a");
+    w("otro.txt", "x\n", "B otro");
+    git(&["checkout", "-q", "-b", "rama"]);
+    w("a.txt", &format!("{base}rama\n"), "C a en rama");
+    git(&["checkout", "-q", "master"]);
+    w("q.txt", "q\n", "D q");
+    git(&["merge", "-q", "--no-edit", "rama"]);
+    git(&["mv", "a.txt", "b.txt"]);
+    git(&["commit", "-q", "-m", "E renombra a->b"]);
+    w("b.txt", &format!("{base}rama\nfin\n"), "F toca b");
+    w("[x].txt", "glob\n", "G crea [x]");
+
+    let asuntos = |f: &str| -> Vec<String> {
+        super::repo::log(&dir, 0, 20, &super::repo::LogFilter::File(f.to_string()), None)
+            .expect("log de archivo")
+            .into_iter()
+            .map(|c| c.subject)
+            .collect()
+    };
+    // Sigue el renombrado: aparecen C y A, de antes de que se llamara b.txt.
+    assert_eq!(
+        asuntos("b.txt"),
+        vec!["F toca b", "E renombra a->b", "C a en rama", "A crea a"]
+    );
+    // Un archivo que solo se tocó en una rama concreta sí sale (por `--all`).
+    assert_eq!(asuntos("q.txt"), vec!["D q"]);
+    // Literal: `[x].txt` no es el glob «x.txt» y solo devuelve su propio commit…
+    assert_eq!(asuntos("[x].txt"), vec!["G crea [x]"]);
+    // …y un nombre con forma de opción o de pathspec mágico no filtra a lo loco.
+    assert!(asuntos("--all").is_empty());
+    assert!(asuntos(":(top)b.txt").is_empty());
+    // Ruta vacía o con NUL: rechazada.
+    for mala in ["", "a\0b"] {
+        assert!(
+            super::repo::log(&dir, 0, 5, &super::repo::LogFilter::File(mala.to_string()), None).is_err(),
+            "debe rechazar {mala:?}"
+        );
+    }
+}
+
 /// Mientras hay una operación en curso, `op_continue`/`op_abort` sin ninguna
 /// pendiente deben fallar con mensaje, no entrar en pánico.
 #[test]

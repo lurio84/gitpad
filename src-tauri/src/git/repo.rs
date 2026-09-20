@@ -116,6 +116,10 @@ pub struct Branch {
 /// rama: entonces se acota a ella (lo pide el usuario al filtrar por rama).
 pub enum LogFilter {
     None,
+    /// Historial de UN archivo (ruta relativa al repo): solo los commits que lo
+    /// tocan, atravesando renombrados (`--follow`). Se combina con `--all` o con
+    /// una rama, no con la búsqueda por mensaje/contenido.
+    File(String),
     /// Mensaje del commit. `-F` (literal, no regex) + `-i` (sin distinguir
     /// mayúsculas): sin ellas un `.` o un `*` en la búsqueda dan resultados
     /// que no tienen sentido para quien no espera regex.
@@ -162,6 +166,11 @@ pub fn log(
             return Err(GitError::Parse(format!("ref de rama inválida: {b}")));
         }
     }
+    if let LogFilter::File(f) = filter {
+        if f.is_empty() || f.contains('\0') {
+            return Err(GitError::Parse("ruta de archivo inválida".into()));
+        }
+    }
     // Un repo recién iniciado (o una rama huérfana) no tiene commits en HEAD y
     // `git log` sale con código 128. Se detecta antes con `rev-parse --verify HEAD`
     // (código 1 si no hay commit) y se devuelve una lista vacía en vez de un error.
@@ -192,6 +201,12 @@ pub fn log(
     // no se lee como opción de git.
     match filter {
         LogFilter::None => {}
+        LogFilter::File(_) => {
+            // Global y antes del subcomando: sin él `[x].txt` sería un glob y
+            // `:(top)x` un pathspec mágico. La ruta en sí va al final, tras `--`.
+            args.insert(0, "--literal-pathspecs".to_string());
+            args.push("--follow".to_string());
+        }
         LogFilter::Message(q) => {
             args.push("-i".to_string());
             args.push("-F".to_string());
@@ -203,6 +218,10 @@ pub fn log(
     }
     args.push(skip_arg);
     args.push(count_arg);
+    if let LogFilter::File(f) = filter {
+        args.push("--".to_string());
+        args.push(f.clone());
+    }
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     let out = run_git(repo, &args)?;
 
