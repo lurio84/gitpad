@@ -48,6 +48,7 @@ import { FileView } from "./FileView";
 import { Graph, ROW_H, WIP_HASH } from "./Graph";
 import { usePanels } from "./usePanels";
 import { BranchPanel } from "./BranchPanel";
+import { TabsBar } from "./TabsBar";
 import { basename, branchLabel, branchRef, busyClass, isGitError, shortDate, wipCommit } from "./format";
 import {
   ACTIVE_KEY,
@@ -1115,57 +1116,17 @@ function App() {
       </header>
 
       {tabs.length > 0 && (
-        <nav className="tabs" role="tablist" aria-label="Repositorios abiertos">
-          {tabs.map((t) => (
-            <div
-              key={t.root}
-              role="tab"
-              aria-selected={t.root === activeRoot}
-              {...focusable}
-              className={`tab${t.root === activeRoot ? " active" : ""}${
-                dragOver === t.root && dragRoot !== t.root ? " drop-target" : ""
-              }${dragRoot === t.root ? " dragging" : ""}`}
-              onClick={() => selectTab(t.root)}
-              title={t.root}
-              draggable
-              onDragStart={(e) => {
-                e.dataTransfer.effectAllowed = "move";
-                e.dataTransfer.setData("text/plain", t.root);
-                setDragRoot(t.root);
-              }}
-              onDragOver={(e) => {
-                if (dragRoot === null) return;
-                e.preventDefault();
-                e.dataTransfer.dropEffect = "move";
-                if (dragOver !== t.root) setDragOver(t.root);
-              }}
-              onDrop={(e) => {
-                e.preventDefault();
-                if (dragRoot !== null) moveTab(dragRoot, t.root);
-                setDragRoot(null);
-                setDragOver(null);
-              }}
-              onDragEnd={() => {
-                setDragRoot(null);
-                setDragOver(null);
-              }}
-            >
-              <span className="tab-name">{basename(t.root)}</span>
-              {t.loading && <span className="tab-spin" aria-hidden="true" />}
-              {t.error && !t.loading && <span className="tab-warn">!</span>}
-              <button
-                className="tab-close"
-                aria-label="Cerrar pestaña"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  closeTab(t.root);
-                }}
-              >
-                ×
-              </button>
-            </div>
-          ))}
-        </nav>
+        <TabsBar
+          tabs={tabs}
+          activeRoot={activeRoot}
+          dragRoot={dragRoot}
+          dragOver={dragOver}
+          setDragRoot={setDragRoot}
+          setDragOver={setDragOver}
+          selectTab={selectTab}
+          closeTab={closeTab}
+          moveTab={moveTab}
+        />
       )}
 
       {openError && <div className="error">{openError}</div>}
