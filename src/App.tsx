@@ -41,6 +41,7 @@ import {
   type ResetMode,
 } from "./api";
 import { ContextMenu, type MenuItem, type MenuState } from "./ContextMenu";
+import { focusable, listRow } from "./a11y";
 import { DiffView } from "./Diff";
 import { FilesViewToggle, FileTree, leafIndent, useFilesView } from "./FileTree";
 import { FileView } from "./FileView";
@@ -1214,6 +1215,11 @@ function App() {
     },
   ];
 
+  // Una sola parada de Tab en la lista de commits (ver `listRow`): el seleccionado,
+  // o el primero si no hay ninguno visible.
+  const selHash = active?.sel?.t === "commit" ? active.sel.hash : null;
+  const selVisible = selHash !== null && displayCommits.some((x) => x.hash === selHash);
+
   return (
     <div className="app" style={{ "--row-h": `${ROW_H}px` } as React.CSSProperties}>
       {menu && <ContextMenu menu={menu} onClose={closeMenu} />}
@@ -1326,10 +1332,13 @@ function App() {
       </header>
 
       {tabs.length > 0 && (
-        <nav className="tabs">
+        <nav className="tabs" role="tablist" aria-label="Repositorios abiertos">
           {tabs.map((t) => (
             <div
               key={t.root}
+              role="tab"
+              aria-selected={t.root === activeRoot}
+              {...focusable}
               className={`tab${t.root === activeRoot ? " active" : ""}${
                 dragOver === t.root && dragRoot !== t.root ? " drop-target" : ""
               }${dragRoot === t.root ? " dragging" : ""}`}
@@ -1418,6 +1427,8 @@ function App() {
                       return (
                         <li
                           key={b.name}
+                          aria-current={b.is_head ? "true" : undefined}
+                          {...focusable}
                           className={`branch-item${b.is_head ? " current" : ""}${
                             locked ? " locked" : ""
                           }`}
@@ -1579,7 +1590,7 @@ function App() {
                 }
               />
               <ol>
-                {displayCommits.map((c) => {
+                {displayCommits.map((c, idx) => {
                   if (c.hash === WIP_HASH) {
                     // Entrada al panel "Cambios": mismo gesto que en
                     // GitKraken (clicar el nodo //WIP), en vez de depender de
@@ -1588,6 +1599,8 @@ function App() {
                     return (
                       <li
                         key="wip"
+                        aria-current={wipOn ? "true" : undefined}
+                        {...listRow(!selVisible)}
                         className={`commit wip${wipOn ? " sel" : ""}`}
                         onClick={() =>
                           patchTab(active.root, { sel: null, diff: null, commitFiles: [] })
@@ -1610,6 +1623,8 @@ function App() {
                   return (
                     <li
                       key={c.hash}
+                      aria-current={on ? "true" : undefined}
+                      {...listRow(selVisible ? c.hash === selHash : idx === 0)}
                       className={`commit${on ? " sel" : ""}`}
                       onContextMenu={(ev) =>
                         // El nodo //WIP no es un commit real: sin menú (y sin el nativo).
@@ -1772,6 +1787,8 @@ function App() {
                         return (
                           <li
                             key={p}
+                            aria-current={on ? "true" : undefined}
+                            {...focusable}
                             className={`entry${on ? " sel" : ""}`}
                             style={{ paddingLeft: leafIndent(depth) }}
                             onContextMenu={(ev) => openMenu(ev, p, fileItems(active.root, p))}
@@ -1842,6 +1859,8 @@ function App() {
                     return (
                       <li
                         key={cf.path}
+                        aria-current={on ? "true" : undefined}
+                        {...focusable}
                         className={`entry${on ? " sel" : ""}`}
                         style={
                           filesView === "tree" ? { paddingLeft: leafIndent(depth) } : undefined
@@ -1926,6 +1945,7 @@ function App() {
                             {unmergedEntries.map((e) => (
                               <li
                                 key={e.path}
+                                {...focusable}
                                 className={`entry ${e.kind}${
                                   selOn(e.path, true) || selOn(e.path, false) ? " sel" : ""
                                 }`}
@@ -1985,6 +2005,7 @@ function App() {
                           return (
                             <li
                               key={`u-${e.path}`}
+                              {...focusable}
                               className={`entry ${e.kind}${selOn(e.path, false) ? " sel" : ""}`}
                               onClick={() =>
                                 void loadDiff(active.root, {
@@ -2057,6 +2078,7 @@ function App() {
                         {stagedEntries.map((e) => (
                           <li
                             key={`s-${e.path}`}
+                            {...focusable}
                             className={`entry ${e.kind}${selOn(e.path, true) ? " sel" : ""}`}
                             onClick={() =>
                               void loadDiff(active.root, {

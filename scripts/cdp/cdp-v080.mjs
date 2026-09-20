@@ -108,6 +108,14 @@ put(Q, "code.ts", "const total = 2;\n1 2 3 4 5 6 7 8 9 10 11 12;\nEl gato blanco
 git(Q, "commit", "-qam", "q2 cambia valores");
 const rootQ = git(Q, "rev-parse", "--show-toplevel");
 
+// Repo R (teclado): una segunda rama a la que cambiar con Enter.
+const R = initRepo("repoR");
+put(R, "r.txt", "r\n");
+git(R, "add", "-A");
+git(R, "commit", "-q", "-m", "r1");
+git(R, "branch", "otra");
+const rootR = git(R, "rev-parse", "--show-toplevel");
+
 // ---------- CDP ----------
 const list = await (await fetch(`http://localhost:${PORT}/json`)).json();
 const target = list.find(
@@ -552,6 +560,77 @@ try {
   check("el resaltado tiene fondo propio (no es solo un span)",
     (await ev("getComputedStyle(document.querySelector('.dl.add .wd')).backgroundColor")) !== "rgba(0, 0, 0, 0)");
   await modo("Side by side");
+
+  // ===== Tanda 4. Teclado y ARIA (eventos de teclado REALES de CDP) =====
+  console.log("\n# 5. Teclado y ARIA");
+  const press = async (key, code, vk, text) => {
+    await send("Input.dispatchKeyEvent", { type: "keyDown", key, code, windowsVirtualKeyCode: vk, ...(text ? { text } : {}) });
+    await send("Input.dispatchKeyEvent", { type: "keyUp", key, code, windowsVirtualKeyCode: vk });
+    await sleep(150);
+  };
+  const enter = () => press("Enter", "Enter", 13, "\r");
+  const down = () => press("ArrowDown", "ArrowDown", 40);
+  const up = () => press("ArrowUp", "ArrowUp", 38);
+  const home = () => press("Home", "Home", 36);
+  const end = () => press("End", "End", 35);
+  const focusIdx = (i) => ev(`(() => { const r = document.querySelectorAll('.commit')[${i}]; r.focus(); return document.activeElement === r; })()`);
+  const activeIdx = () => ev("Array.from(document.querySelectorAll('.commit')).indexOf(document.activeElement)");
+
+  // Commits: una sola parada de Tab, flechas, Inicio/Fin, Enter.
+  await reloadWith([rootP], rootP);
+  const nRows = await ev("document.querySelectorAll('.commit').length");
+  check("commits: UNA sola parada de Tab en toda la lista (roving tabindex)",
+    (await ev("document.querySelectorAll('.commit[tabindex=\"0\"]').length")) === 1, `${nRows} filas`);
+  check("commits: las demás filas se enfocan por código pero no por Tab",
+    (await ev("document.querySelectorAll('.commit[tabindex=\"-1\"]').length")) === nRows - 1);
+  await focusIdx(0);
+  await down();
+  check("commits: ↓ mueve el foco a la fila siguiente", (await activeIdx()) === 1, String(await activeIdx()));
+  await down();
+  await up();
+  check("commits: ↑ vuelve a la anterior", (await activeIdx()) === 1, String(await activeIdx()));
+  await end();
+  check("commits: Fin va a la última fila", (await activeIdx()) === nRows - 1, String(await activeIdx()));
+  await home();
+  check("commits: Inicio va a la primera", (await activeIdx()) === 0, String(await activeIdx()));
+  await down();
+  await enter();
+  check("commits: Enter selecciona la fila enfocada", await waitFor("document.querySelectorAll('.commit.sel').length === 1 ? 1 : null").then(() => true, () => false));
+  check("commits: la fila seleccionada lleva aria-current", (await ev("document.querySelector('.commit.sel')?.getAttribute('aria-current')")) === "true");
+  check("commits: la parada de Tab pasa a la fila seleccionada",
+    (await ev("document.querySelector('.commit.sel')?.getAttribute('tabindex')")) === "0" && (await ev("document.querySelectorAll('.commit[tabindex=\"0\"]').length")) === 1);
+
+  // Un archivo del commit: Enter carga su diff.
+  await waitFor("document.querySelector('.entry') ? 1 : null");
+  check("archivos: la fila entra en el orden de Tab", (await ev("document.querySelector('.entry')?.getAttribute('tabindex')")) === "0");
+  await ev("document.querySelector('.entry').focus()");
+  await enter();
+  check("archivos: Enter abre el diff del archivo", await waitFor("document.querySelector('.diff-wrap') ? 1 : null").then(() => true, () => false));
+
+  // Pestañas: roles ARIA, Enter para cambiar y Enter en «×» sin doble disparo.
+  await reloadWith([rootP, rootN], rootP);
+  await waitFor("document.querySelectorAll('.tab').length === 2 ? 1 : null");
+  check("pestañas: el contenedor es un tablist y cada pestaña un tab",
+    (await ev("document.querySelector('nav.tabs')?.getAttribute('role')")) === "tablist" && (await ev("Array.from(document.querySelectorAll('.tab')).every((t) => t.getAttribute('role') === 'tab')")));
+  check("pestañas: aria-selected refleja la activa", (await ev("Array.from(document.querySelectorAll('.tab')).map((t) => t.getAttribute('aria-selected')).join()")) === "true,false");
+  await ev("document.querySelectorAll('.tab')[1].focus()");
+  await enter();
+  check("pestañas: Enter en una pestaña la activa",
+    await waitFor("document.querySelectorAll('.tab')[1].classList.contains('active') ? 1 : null").then(() => true, () => false));
+  check("pestañas: aria-selected sigue a la activa", (await ev("Array.from(document.querySelectorAll('.tab')).map((t) => t.getAttribute('aria-selected')).join()")) === "false,true");
+  // Enter sobre el «×»: cierra ESA pestaña y no dispara además el clic de la pestaña.
+  await ev("document.querySelectorAll('.tab')[0].querySelector('.tab-close').focus()");
+  await enter();
+  check("pestañas: Enter en «×» la cierra (una sola pestaña queda)",
+    await waitFor("document.querySelectorAll('.tab').length === 1 ? 1 : null").then(() => true, () => false));
+  check("pestañas: y la que queda es la otra (no hubo doble disparo)", (await ev("document.querySelector('.tab .tab-name').textContent")) === "repoN", await ev("document.querySelector('.tab .tab-name').textContent"));
+
+  // Ramas: Enter en una rama no actual hace checkout.
+  await reloadWith([rootR], rootR);
+  check("ramas: la rama actual lleva aria-current", (await ev("document.querySelector('.branch-item.current')?.getAttribute('aria-current')")) === "true");
+  await ev(`(${branchRow("otra")}).focus()`);
+  await enter();
+  check("ramas: Enter sobre «otra» hace checkout", await waitGit(() => git(R, "branch", "--show-current") === "otra"));
 } finally {
   await restoreLS();
   ws.close();

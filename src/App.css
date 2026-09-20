@@ -1390,3 +1390,12 @@ body.resizing {
 .split-text.del .wd {
   background: color-mix(in srgb, var(--del-fg) 30%, transparent);
 }
+
+/* Filas y pestañas alcanzables con Tab: el aro va hacia dentro, porque los
+   contenedores con overflow lo recortarían por fuera. */
+.commit:focus-visible,
+.entry:focus-visible,
+.branch-item:focus-visible,
+.tab:focus-visible {
+  outline-offset: -2px;
+}
