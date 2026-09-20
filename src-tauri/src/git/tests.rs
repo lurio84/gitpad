@@ -1774,6 +1774,98 @@ fn file_content_de_un_submodulo_da_mensaje_legible() {
     assert!(super::repo::file_content(&dir, &h, "a.txt").is_ok());
 }
 
+/// Las rutas que llegan de la UI son LITERALES. Un pathspec normal trata `[1]`
+/// como glob (`a[1].txt` casa con `a1.txt`), y en Windows los corchetes son
+/// nombres de archivo corrientes: descartar `a[1].txt` se llevaba por delante
+/// los cambios de `a1.txt`, y con `clean` borraba también el sin seguir `n1.txt`
+/// (irrecuperable). Cada operación se prueba con un hermano que NO debe tocar.
+#[test]
+fn rutas_con_corchetes_son_literales() {
+    let Some(dir) = repo_temporal("literal") else {
+        eprintln!("git no disponible, se salta el test");
+        return;
+    };
+    let _guard = scopeguard(&dir);
+    let git = |args: &[&str]| {
+        std::process::Command::new("git").args(args).current_dir(&dir).status().unwrap().success()
+    };
+    let git_out = |args: &[&str]| -> String {
+        let o = std::process::Command::new("git").args(args).current_dir(&dir).output().unwrap();
+        String::from_utf8_lossy(&o.stdout).trim().to_string()
+    };
+    let leer = |f: &str| std::fs::read_to_string(dir.join(f)).unwrap();
+    let escribe = |f: &str, c: &str| std::fs::write(dir.join(f), c).unwrap();
+    let v = |s: &str| vec![s.to_string()];
+
+    escribe("a[1].txt", "corchetes\n");
+    escribe("a1.txt", "hermano\n");
+    git(&["add", "-A"]);
+    git(&["commit", "-q", "-m", "base"]);
+    escribe("a[1].txt", "corchetes CAMBIADO\n");
+    escribe("a1.txt", "hermano CAMBIADO\n");
+
+    // stage / unstage: solo el de corchetes.
+    super::repo::stage(&dir, &v("a[1].txt")).unwrap();
+    assert_eq!(git_out(&["diff", "--cached", "--name-only"]), "a[1].txt", "stage no arrastra al hermano");
+    super::repo::unstage(&dir, &v("a[1].txt")).unwrap();
+    assert_eq!(git_out(&["diff", "--cached", "--name-only"]), "", "unstage tampoco");
+
+    // diff de un archivo: solo el suyo.
+    let d = super::repo::file_diff(&dir, "a[1].txt", false).unwrap();
+    assert!(d.contains("a[1].txt") && !d.contains("a1.txt"), "file_diff solo del suyo: {d}");
+
+    // descartar un cambio seguido: el hermano conserva el suyo.
+    super::repo::discard(&dir, &v("a[1].txt"), &[], false).unwrap();
+    assert_eq!(leer("a[1].txt"), "corchetes\n", "el descartado vuelve a HEAD");
+    assert_eq!(leer("a1.txt"), "hermano CAMBIADO\n", "el hermano NO se toca");
+
+    // descartar un archivo sin seguir (clean): el hermano sin seguir sobrevive.
+    escribe("n[1].txt", "n\n");
+    escribe("n1.txt", "m\n");
+    super::repo::discard(&dir, &v("n[1].txt"), &[], true).unwrap();
+    assert!(!dir.join("n[1].txt").exists(), "el sin seguir se borra");
+    assert!(dir.join("n1.txt").exists(), "el hermano sin seguir NO se borra");
+
+    // diff de un archivo dentro de un commit: solo el suyo.
+    escribe("a[1].txt", "corchetes v2\n");
+    git(&["add", "-A"]);
+    git(&["commit", "-q", "-m", "toca ambos"]);
+    let h = git_out(&["rev-parse", "HEAD"]);
+    let cd = super::repo::commit_file_diff(&dir, &h, "a[1].txt", None).unwrap();
+    assert!(cd.contains("a[1].txt") && !cd.contains("a1.txt"), "commit_file_diff solo del suyo: {cd}");
+}
+
+/// Un commit con el separador de campos (`\x1f`) en su mensaje no debe romper
+/// el log ENTERO: antes `split(FS)` daba más de 9 campos y `log()` fallaba, con
+/// lo que el repo dejaba de abrirse en gitpad por un solo commit raro. El
+/// cuerpo es el último campo, así que con `splitn(9, …)` conserva el separador.
+#[test]
+fn log_sobrevive_a_un_separador_de_campos_en_el_cuerpo() {
+    let Some(dir) = repo_temporal("fs-en-cuerpo") else {
+        eprintln!("git no disponible, se salta el test");
+        return;
+    };
+    let _guard = scopeguard(&dir);
+    let git = |args: &[&str]| {
+        std::process::Command::new("git").args(args).current_dir(&dir).status().unwrap().success()
+    };
+    std::fs::write(dir.join("a.txt"), "a\n").unwrap();
+    git(&["add", "-A"]);
+    let msg = format!("asunto normal\n\ncuerpo con{}separador dentro", '\u{1f}');
+    std::fs::write(dir.join("msg.txt"), &msg).unwrap();
+    git(&["commit", "-q", "-F", "msg.txt"]);
+    std::fs::write(dir.join("b.txt"), "b\n").unwrap();
+    git(&["add", "a.txt", "b.txt"]);
+    git(&["commit", "-q", "-m", "otro commit, este sí normal"]);
+
+    let log = super::repo::log(&dir, 0, 10, &super::repo::LogFilter::None, None)
+        .expect("un separador en el cuerpo no debe romper el log entero");
+    assert_eq!(log.len(), 2, "los dos commits salen");
+    assert_eq!(log[1].subject, "asunto normal");
+    assert!(log[1].body.contains('\u{1f}') && log[1].body.contains("separador dentro"), "el cuerpo se conserva entero: {:?}", log[1].body);
+    assert_eq!(log[0].subject, "otro commit, este sí normal", "el commit de al lado no se contamina");
+}
+
 /// Crea un repo temporal con git configurado, para los tests de reset/revert.
 fn repo_temporal(prefijo: &str) -> Option<std::path::PathBuf> {
     let dir = std::env::temp_dir().join(format!(

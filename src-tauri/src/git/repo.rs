@@ -230,7 +230,9 @@ pub fn log(
         if record.is_empty() {
             continue;
         }
-        let f: Vec<&str> = record.split(FS).collect();
+        // `splitn(9, …)`: el cuerpo (`%b`) va el último y es texto libre; con `split`
+        // el separador de campos en un solo mensaje daba 10 campos y rompía el log entero.
+        let f: Vec<&str> = record.splitn(9, FS).collect();
         if f.len() != 9 {
             return Err(GitError::Parse(format!(
                 "esperados 9 campos por commit, encontrados {}",
@@ -558,6 +560,7 @@ pub fn commit_file_diff(
         return Err(GitError::Parse(format!("hash de commit inválido: {hash}")));
     }
     let mut args = vec![
+        "--literal-pathspecs",
         "-c",
         "core.quotePath=false",
         "show",
@@ -709,7 +712,7 @@ pub(super) fn file_content_capped(
 /// La ruta va tras `--` para que un nombre que empiece por `-` no se lea como
 /// opción, y se pasa exactamente como la dio `status`.
 pub fn file_diff(repo: &Path, file: &str, staged: bool) -> GitResult<String> {
-    let mut args = vec!["diff", "--no-color", "--no-ext-diff", "-U3"];
+    let mut args = vec!["--literal-pathspecs", "diff", "--no-color", "--no-ext-diff", "-U3"];
     if staged {
         args.push("--cached");
     }
@@ -719,12 +722,15 @@ pub fn file_diff(repo: &Path, file: &str, staged: bool) -> GitResult<String> {
 }
 
 /// Prepara rutas en el índice (`git add`). Las rutas van tras `--` y tal cual
-/// las dio `status`.
+/// las dio `status`, y con `--literal-pathspecs`: un pathspec normal trata `[1]`
+/// como glob, así que `a[1].txt` casaría también con `a1.txt` (y en `discard`, con
+/// `clean`, se borraría un archivo que no era). Vale igual para `unstage`,
+/// `discard`, `file_diff` y `commit_file_diff`.
 pub fn stage(repo: &Path, paths: &[String]) -> GitResult<()> {
     if paths.is_empty() {
         return Ok(());
     }
-    let mut args = vec!["add", "--"];
+    let mut args = vec!["--literal-pathspecs", "add", "--"];
     args.extend(paths.iter().map(String::as_str));
     run_git(repo, &args).map(|_| ())
 }
@@ -735,7 +741,7 @@ pub fn unstage(repo: &Path, paths: &[String]) -> GitResult<()> {
     if paths.is_empty() {
         return Ok(());
     }
-    let mut args = vec!["reset", "--quiet", "--"];
+    let mut args = vec!["--literal-pathspecs", "reset", "--quiet", "--"];
     args.extend(paths.iter().map(String::as_str));
     run_git(repo, &args).map(|_| ())
 }
@@ -764,11 +770,11 @@ pub fn discard(
         return Ok(());
     }
     if untracked {
-        let mut args = vec!["clean", "-f", "-d", "--"];
+        let mut args = vec!["--literal-pathspecs", "clean", "-f", "-d", "--"];
         args.extend(paths.iter().map(String::as_str));
         run_git(repo, &args).map(|_| ())
     } else {
-        let mut args = vec!["restore", "--staged", "--worktree", "--"];
+        let mut args = vec!["--literal-pathspecs", "restore", "--staged", "--worktree", "--"];
         args.extend(paths.iter().map(String::as_str));
         args.extend(orig_paths.iter().map(String::as_str));
         run_git(repo, &args).map(|_| ())
@@ -911,6 +917,10 @@ pub fn push(repo: &Path) -> GitResult<()> {
     if st.upstream.is_none() {
         let remote = first_remote(repo)?;
         args.push("-u".to_string());
+        // El nombre del remoto sale de la config del repo y la rama del HEAD: en un
+        // repo ajeno pueden llamarse `--receive-pack=…`. Tras `--end-of-options`
+        // git ya no los lee como opciones.
+        args.push("--end-of-options".to_string());
         args.push(remote);
         args.push(branch);
     }
