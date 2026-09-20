@@ -8,7 +8,7 @@
 //
 //   node cdp-v080.mjs            (puerto CDP 9222, o CDP_PORT=...)
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { keepLocalStorage } from "./_ls.mjs";
@@ -653,6 +653,22 @@ try {
   const filasVacias = await ev("Array.from(document.querySelectorAll('.clean-row')).map((e) => e.textContent)");
   check("secciones vacías: «Nada preparado» en vez de un «—»", filasVacias.includes("Nada preparado") && !filasVacias.includes("—"), filasVacias.join("|"));
   rmSync(join(R, "nuevo.txt"));
+
+  // ===== Tanda 5. Hallazgos de la auditoría =====
+  console.log("\n# 7. Auditoría");
+  // Descartar: la confirmación NOMBRA el archivo (se rechaza para no perder nada).
+  put(R, "r.txt", "r cambiado\n");
+  await reloadWith([rootR], rootR);
+  await waitFor("Array.from(document.querySelectorAll('.entry')).some((e) => e.textContent.includes('r.txt')) ? 1 : null");
+  await answer("", [false]);
+  await ev(`(() => {
+    const fila = Array.from(document.querySelectorAll('.entry')).find((e) => e.textContent.includes('r.txt'));
+    fila.querySelector('button[title="Descartar cambios"]').click(); return 1; })()`);
+  await sleep(500);
+  const msgDesc = (await msgs())[0] ?? "";
+  check("descartar: la confirmación nombra el archivo", msgDesc.includes("r.txt") && msgDesc.includes("No se puede deshacer"), msgDesc.replace(/\n/g, " ⏎ "));
+  check("descartar: rechazar la confirmación no toca el archivo", readFileSync(join(R, "r.txt"), "utf8").startsWith("r cambiado"));
+  git(R, "checkout", "--", "r.txt");
 } finally {
   await restoreLS();
   ws.close();

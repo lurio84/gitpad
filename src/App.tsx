@@ -624,9 +624,16 @@ function App() {
 
   const doDiscard = useCallback(
     async (root: string, paths: string[], origPaths: string[], untracked: boolean) => {
-      const msg = untracked
-        ? `¿Borrar ${paths.length === 1 ? "este archivo" : "estos archivos"} sin seguir? No se puede deshacer.`
-        : `¿Descartar los cambios de ${paths.length === 1 ? "este archivo" : "estos archivos"}? No se puede deshacer.`;
+      // Los botones por fila aparecen al pasar el ratón: fácil pulsar el de la fila
+      // equivocada. La confirmación dice CUÁL(ES) se pierde(n).
+      const nombres = paths.slice(0, 6).map((p) => `  • ${p}`);
+      if (paths.length > 6) nombres.push(`  … y ${paths.length - 6} más`);
+      const que = paths.length === 1 ? "este archivo" : "estos archivos";
+      const msg =
+        (untracked
+          ? `¿Borrar ${que} sin seguir?`
+          : `¿Descartar los cambios de ${que}?`) +
+        `\n\n${nombres.join("\n")}\n\nNo se puede deshacer.`;
       if (!window.confirm(msg)) return;
       try {
         await discardPaths(root, paths, origPaths, untracked);
