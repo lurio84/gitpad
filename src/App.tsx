@@ -30,12 +30,15 @@ import {
   pushRemote,
   rebaseOnto,
   renameBranch,
+  resetTo,
+  revertCommit,
   stagePaths,
   stashApply,
   stashDrop,
   stashPush,
   unstagePaths,
   type LogFilterMode,
+  type ResetMode,
 } from "./api";
 import { ContextMenu, type MenuItem, type MenuState } from "./ContextMenu";
 import { DiffView } from "./Diff";
@@ -53,6 +56,7 @@ import type {
   RepoInfo,
   Stash,
   Status,
+  StatusEntry,
 } from "./types";
 import "./App.css";
 
@@ -64,9 +68,17 @@ interface LogView {
   mode: LogFilterMode;
   query: string;
   branch: string | null;
+  /** Historial de un archivo: lente pasajero, exclusivo con la búsqueda. */
+  file: string | null;
   limit: number;
 }
-const DEFAULT_VIEW: LogView = { mode: "message", query: "", branch: null, limit: LOG_PAGE };
+const DEFAULT_VIEW: LogView = {
+  mode: "message",
+  query: "",
+  branch: null,
+  file: null,
+  limit: LOG_PAGE,
+};
 
 /** Ref completa que se le pasa a `get_log` para ver solo una rama. */
 const branchRef = (b: Branch) => (b.is_remote ? "refs/remotes/" : "refs/heads/") + b.name;
@@ -164,6 +176,8 @@ interface Tab {
   filterQuery: string;
   /** Ref completa (`refs/heads/x`) si el log se limita a una rama; null = todas. */
   filterBranch: string | null;
+  /** Ruta si el log muestra solo el historial de ese archivo; null = normal. */
+  filterFile: string | null;
   /** Cuántos commits se pidieron al log (crece de LOG_PAGE en LOG_PAGE). */
   logLimit: number;
   error: string | null;
@@ -207,6 +221,7 @@ function emptyTab(root: string): Tab {
     filterMode: "message",
     filterQuery: "",
     filterBranch: null,
+    filterFile: null,
     logLimit: LOG_PAGE,
     error: null,
     loading: true,
@@ -329,7 +344,7 @@ function App() {
       try {
         const info = await openRepo(root);
         const [log, st, branches, opState, stashes, defaultBase] = await Promise.all([
-          getLog(info.root, 0, filter.limit, filter.mode, filter.query, filter.branch),
+          getLog(info.root, 0, filter.limit, filter.mode, filter.query, filter.branch, filter.file),
           getStatus(info.root),
           getBranches(info.root),
           getOpState(info.root),
@@ -345,6 +360,7 @@ function App() {
                   info,
                   commits: log,
                   filterBranch: filter.branch,
+                  filterFile: filter.file,
                   logLimit: filter.limit,
                   branches,
                   status: st,
@@ -583,7 +599,7 @@ function App() {
         getStashes(root),
         // `filter.limit`, no LOG_PAGE: si Bernardo ya cargó más páginas, un
         // alt-tab no debe encogerle la lista.
-        getLog(root, 0, filter.limit, filter.mode, filter.query, filter.branch),
+        getLog(root, 0, filter.limit, filter.mode, filter.query, filter.branch, filter.file),
       ]);
       if (gens.current.get(root) !== gen) return;
       patchTab(root, { info, opState, status, branches, stashes, commits: log });
@@ -809,6 +825,46 @@ function App() {
     [reload, patchTab, failTab],
   );
 
+  const doRevert = useCallback(
+    async (root: string, c: Commit) => {
+      if (!window.confirm(`¿Crear un commit que deshaga ${c.short_hash} «${c.subject}»?`)) return;
+      patchTab(root, { refBusy: true, error: null });
+      try {
+        await revertCommit(root, c.hash);
+        patchTab(root, { refBusy: false });
+        await reload(root);
+      } catch (e) {
+        // Un conflicto deja el revert a medias: refrescar para que aparezca el banner.
+        failTab(root, e);
+        await refreshVolatile(root);
+      }
+    },
+    [reload, patchTab, failTab, refreshVolatile],
+  );
+
+  /** `lost`: cambios sin guardar que hay AHORA; solo importan con `hard`, que los descarta. */
+  const doReset = useCallback(
+    (root: string, c: Commit, mode: ResetMode, branch: string | null, lost: StatusEntry[]) => {
+      let msg =
+        `¿Mover ${branch ? `la rama "${branch}"` : "HEAD"} a ${c.short_hash} «${c.subject}»?\n\n` +
+        "Los commits posteriores dejarán de estar en la rama (siguen en el reflog).";
+      if (mode === "soft") msg += "\n\nSus cambios quedan preparados (staged).";
+      if (mode === "mixed") msg += "\n\nSus cambios quedan en tu carpeta, sin preparar.";
+      if (mode === "hard") {
+        const nombres = lost.slice(0, 8).map((e) => `  • ${e.path}`);
+        if (lost.length > 8) nombres.push(`  … y ${lost.length - 8} más`);
+        msg +=
+          lost.length > 0
+            ? `\n\nSE PERDERÁN los cambios sin guardar de ${lost.length} archivo(s):\n${nombres.join("\n")}`
+            : "\n\nNo hay cambios sin guardar que perder.";
+        msg += "\n(Los archivos sin seguir no se tocan.)";
+      }
+      if (!window.confirm(msg)) return;
+      void refOp(root, () => resetTo(root, c.hash, mode));
+    },
+    [refOp],
+  );
+
   const doCreateBranch = useCallback(
     (root: string, at?: string) => {
       const name = window
@@ -872,8 +928,19 @@ function App() {
 
   const applyFilter = useCallback(
     (root: string, mode: LogFilterMode, query: string) => {
-      patchTab(root, { filterMode: mode, filterQuery: query });
-      void reload(root, { filter: { mode, query } });
+      // Buscar deja el lente de archivo: los dos no se combinan.
+      patchTab(root, { filterMode: mode, filterQuery: query, filterFile: null });
+      void reload(root, { filter: { mode, query, file: null } });
+    },
+    [reload, patchTab],
+  );
+
+  /** Historial de un archivo (lente pasajero, como el de rama y sin persistir):
+   * con `null` vuelve al log normal. Suelta la búsqueda en curso. */
+  const applyFile = useCallback(
+    (root: string, file: string | null) => {
+      patchTab(root, { filterFile: file, filterQuery: "" });
+      void reload(root, { filter: { file, query: "" } });
     },
     [reload, patchTab],
   );
@@ -903,7 +970,7 @@ function App() {
       // botón "Cargar más" desaparecería).
       filters.current.set(root, { ...view, limit });
       try {
-        const log = await getLog(root, 0, limit, view.mode, view.query, view.branch);
+        const log = await getLog(root, 0, limit, view.mode, view.query, view.branch, view.file);
         if (gens.current.get(root) !== gen) return;
         patchTab(root, { commits: log, logLimit: limit });
       } catch (e) {
@@ -1057,6 +1124,8 @@ function App() {
     active?.status &&
     active.status.entries.length > 0 &&
     active.info?.head_hash &&
+    // Con el historial de un archivo el //WIP no pinta nada: no es un commit del archivo.
+    !active.filterFile &&
     (!active.filterBranch || active.filterBranch === `refs/heads/${active.info.head}`)
   );
   const displayCommits =
@@ -1096,9 +1165,53 @@ function App() {
           },
         ]),
   ];
-  const commitItems = (root: string, c: Commit): MenuItem[] => [
-    { label: "Crear rama aquí…", disabled: menuBusy, onSelect: () => doCreateBranch(root, c.hash) },
-    { label: "Crear tag aquí…", disabled: menuBusy, onSelect: () => doCreateTag(root, c.hash) },
+  const commitItems = (root: string, c: Commit): MenuItem[] => {
+    const esMerge = c.parents.length > 1;
+    // Lo que `reset --hard` descartaría ahora: cambios en archivos seguidos (los
+    // sin seguir y los ignorados sobreviven).
+    const perdibles = (active?.status?.entries ?? []).filter(
+      (e) => e.kind !== "untracked" && e.kind !== "ignored",
+    );
+    const rama = active?.info?.head ?? null;
+    const reset = (mode: ResetMode) => () => doReset(root, c, mode, rama, perdibles);
+    return [
+      { label: "Crear rama aquí…", disabled: menuBusy, onSelect: () => doCreateBranch(root, c.hash) },
+      { label: "Crear tag aquí…", disabled: menuBusy, onSelect: () => doCreateTag(root, c.hash) },
+      {
+        label: "Revert de este commit…",
+        disabled: menuBusy || esMerge,
+        title: esMerge
+          ? "Un commit de fusión no se puede revertir desde gitpad"
+          : "Crea un commit nuevo que deshace este (no reescribe historia)",
+        onSelect: () => void doRevert(root, c),
+      },
+      {
+        label: "Reset soft a este commit…",
+        disabled: menuBusy,
+        title: "Mueve la rama aquí; los cambios quedan preparados (staged)",
+        onSelect: reset("soft"),
+      },
+      {
+        label: "Reset mixed a este commit…",
+        disabled: menuBusy,
+        title: "Mueve la rama aquí; los cambios quedan en tu carpeta, sin preparar",
+        onSelect: reset("mixed"),
+      },
+      {
+        label: "Reset hard a este commit…",
+        danger: true,
+        disabled: menuBusy,
+        title: "Mueve la rama aquí y DESCARTA los cambios sin guardar",
+        onSelect: reset("hard"),
+      },
+    ];
+  };
+  const fileItems = (root: string, path: string): MenuItem[] => [
+    {
+      label: "Ver historial de este archivo",
+      disabled: menuBusy,
+      onSelect: () => applyFile(root, path),
+    },
   ];
 
   return (
@@ -1403,6 +1516,7 @@ function App() {
                 {active.opState.kind === "rebase" && "Rebase en curso"}
                 {active.opState.kind === "cherry_pick" && "Cherry-pick en curso"}
                 {active.opState.kind === "merge" && "Merge en curso"}
+                {active.opState.kind === "revert" && "Revert en curso"}
                 {" — resuelve los archivos en conflicto en tu editor, haz stage (＋) y luego:"}
                 <button
                   className={busyClass(active.opBusy)}
@@ -1417,6 +1531,19 @@ function App() {
                   onClick={() => void doOpAbort(active.root)}
                 >
                   Abortar
+                </button>
+              </p>
+            )}
+            {active.filterFile && (
+              <p className="filter-info">
+                Historial de <strong>{active.filterFile}</strong> ·{" "}
+                {/* Sin recuento mientras carga: la lista aún es la de antes del filtro. */}
+                {active.loading
+                  ? "cargando…"
+                  : `${active.commits.length} ${active.commits.length === 1 ? "commit" : "commits"}`}{" "}
+                ·{" "}
+                <button className="link" onClick={() => applyFile(active.root, null)}>
+                  ver todo
                 </button>
               </p>
             )}
@@ -1440,7 +1567,17 @@ function App() {
               </p>
             )}
             <div className={`commit-list${introOn ? " intro" : ""}`}>
-              <Graph commits={displayCommits} />
+              {/* Con el historial de un archivo `%P` trae los padres reales, que casi
+                  nunca están en la lista filtrada: dibujar líneas hacia ellos fingiría
+                  una topología que la lista no tiene. Sin padres, el grafo queda como
+                  una columna de puntos (la lista sí conserva los padres: merges). */}
+              <Graph
+                commits={
+                  active.filterFile
+                    ? displayCommits.map((c) => ({ ...c, parents: [] }))
+                    : displayCommits
+                }
+              />
               <ol>
                 {displayCommits.map((c) => {
                   if (c.hash === WIP_HASH) {
@@ -1637,6 +1774,7 @@ function App() {
                             key={p}
                             className={`entry${on ? " sel" : ""}`}
                             style={{ paddingLeft: leafIndent(depth) }}
+                            onContextMenu={(ev) => openMenu(ev, p, fileItems(active.root, p))}
                             onClick={() => {
                               const sameCommit = sel?.t === "commit" && sel.hash === treeTarget;
                               const isMerge =
@@ -1707,6 +1845,9 @@ function App() {
                         className={`entry${on ? " sel" : ""}`}
                         style={
                           filesView === "tree" ? { paddingLeft: leafIndent(depth) } : undefined
+                        }
+                        onContextMenu={(ev) =>
+                          openMenu(ev, cf.path, fileItems(active.root, cf.path))
                         }
                         onClick={() =>
                           sel?.t === "commit" &&

@@ -73,7 +73,7 @@ export interface Branch {
 
 /** Rebase/cherry-pick/merge parado a medias por un conflicto. */
 export interface OpState {
-  kind: "rebase" | "cherry_pick" | "merge";
+  kind: "rebase" | "cherry_pick" | "merge" | "revert";
 }
 
 /** Un archivo tocado por un commit (`git show --name-status`). */

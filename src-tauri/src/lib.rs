@@ -114,6 +114,16 @@ fn merge_branch(path: String, from: String) -> GitResult<()> {
 }
 
 #[tauri::command(async)]
+fn revert_commit(path: String, hash: String) -> GitResult<()> {
+    git::repo::revert(Path::new(&path), &hash)
+}
+
+#[tauri::command(async)]
+fn reset_to(path: String, hash: String, mode: String) -> GitResult<()> {
+    git::repo::reset(Path::new(&path), &hash, &mode)
+}
+
+#[tauri::command(async)]
 fn create_branch(path: String, name: String, at: Option<String>) -> GitResult<()> {
     git::repo::create_branch(Path::new(&path), &name, at.as_deref())
 }
@@ -244,6 +254,8 @@ pub fn run() {
             cherry_pick,
             rebase_onto,
             merge_branch,
+            revert_commit,
+            reset_to,
             create_branch,
             rename_branch,
             delete_branch,

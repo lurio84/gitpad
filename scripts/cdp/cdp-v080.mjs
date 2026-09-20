@@ -74,6 +74,31 @@ git(N, "checkout", "-q", "master");
 const rootN = git(N, "rev-parse", "--show-toplevel");
 const branchesN = () => git(N, "branch", "--format=%(refname:short)").split("\n").sort().join(",");
 
+// Repo P (historial, revert, reset): a.txt se renombra a b.txt (para probar que el
+// historial de un archivo atraviesa el renombrado) y hay un commit de fusión.
+const P = initRepo("repoP");
+const cuerpo = "uno\ndos\ntres\ncuatro\ncinco\nseis\nsiete\nocho\n";
+const commitP = (file, content, msg) => {
+  put(P, file, content);
+  git(P, "add", "-A");
+  git(P, "commit", "-q", "-m", msg);
+  return git(P, "rev-parse", "HEAD");
+};
+commitP("a.txt", cuerpo, "c1 crea a");
+const p2 = commitP("o.txt", "otro\n", "c2 otro");
+git(P, "mv", "a.txt", "b.txt");
+git(P, "commit", "-q", "-m", "c3 renombra a a b");
+commitP("b.txt", cuerpo + "x\n", "c4 toca b");
+git(P, "checkout", "-q", "-b", "rm");
+commitP("r.txt", "r\n", "c5 en rama");
+git(P, "checkout", "-q", "master");
+const p6 = commitP("m.txt", "m\n", "c6 en master");
+git(P, "merge", "-q", "--no-edit", "rm");
+commitP("b.txt", cuerpo + "x\ny\n", "c7 toca b otra vez");
+const rootP = git(P, "rev-parse", "--show-toplevel");
+const tipP = git(P, "rev-parse", "HEAD");
+const subjectsP = () => git(P, "log", "--format=%s").split("\n");
+
 // ---------- CDP ----------
 const list = await (await fetch(`http://localhost:${PORT}/json`)).json();
 const target = list.find(
@@ -273,7 +298,9 @@ try {
   await ev("document.body.click()");
   check("clic derecho en un commit abre el menú", await rightClick(commitRow("primer commit")));
   await waitFor("document.querySelector('.ctx-menu') ? 1 : null");
-  check("el menú del commit ofrece crear rama y tag", JSON.stringify(await menuItems()) === JSON.stringify(["Crear rama aquí…", "Crear tag aquí…"]), (await menuItems()).join("|"));
+  const menuHas = await menuItems();
+  check("el menú del commit ofrece crear rama y tag (y, desde la Tanda 3, revert y reset)",
+    ["Crear rama aquí…", "Crear tag aquí…"].every((x) => menuHas.includes(x)), menuHas.join("|"));
   check("el encabezado del menú dice sobre qué actúa", (await menuHeading())?.includes("primer commit"), await menuHeading());
   check("el foco entra en la primera opción del menú", await ev("document.activeElement?.closest('.ctx-menu') !== null"));
   await send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
@@ -352,6 +379,134 @@ try {
   await ev("document.querySelector('.branches-head button').click()");
   check("nombre inválido: aparece el error", await waitFor("document.querySelector('.error') ? 1 : null").then(() => true, () => false));
   check("nombre inválido: no se crea nada", branchesN() === antes2);
+
+  // ===== Tanda 3. Historial de un archivo, revert y reset =====
+  console.log("\n# 3. Historial de un archivo, revert y reset");
+  await reloadWith([rootP], rootP);
+  await ev("(() => { window.confirm = () => true; return 1; })()");
+  const filas = () => ev("Array.from(document.querySelectorAll('.commit .subject')).map((e) => e.textContent)");
+  const total = (await filas()).length;
+  const selectCommit = async (t) => {
+    await ev(`(${commitRow(t)}).click()`);
+    await waitFor("document.querySelector('.entry') ? 1 : null");
+  };
+
+  // 3a. Historial de b.txt desde el listado de archivos de un commit.
+  await selectCommit("c4 toca b");
+  check("clic derecho en un archivo del commit abre el menú", await rightClick("Array.from(document.querySelectorAll('.entry')).find((e) => e.textContent.includes('b.txt'))"));
+  await waitFor("document.querySelector('.ctx-menu') ? 1 : null");
+  check("el menú del archivo ofrece «Ver historial de este archivo»",
+    JSON.stringify(await menuItems()) === JSON.stringify(["Ver historial de este archivo"]), (await menuItems()).join("|"));
+  await clickBtn(".ctx-menu", "Ver historial de este archivo");
+  await waitFor("document.querySelector('.filter-info')?.textContent.includes('Historial de') ? 1 : null");
+  // El banner sale al instante; la lista filtrada, al terminar la recarga: se espera a ella.
+  await waitFor("document.querySelector('.filter-info')?.textContent.includes('cargando') ? null : 1");
+  await waitFor(`document.querySelectorAll('.commit').length === ${total} ? null : 1`).catch(() => {});
+  const soloB = await filas();
+  check("el historial de b.txt: solo los commits que lo tocan, atravesando el renombrado",
+    JSON.stringify(soloB) === JSON.stringify(["c7 toca b otra vez", "c4 toca b", "c3 renombra a a b", "c1 crea a"]), soloB.join(" | "));
+  check("el banner nombra el archivo y cuenta los commits",
+    (await ev("document.querySelector('.filter-info').textContent")).includes("b.txt") && (await ev("document.querySelector('.filter-info').textContent")).includes("4 commits"),
+    await ev("document.querySelector('.filter-info').textContent"));
+  check("sin nodo //WIP en el historial de un archivo", (await ev("!!document.querySelector('.commit.wip')")) === false);
+  check("el grafo no dibuja líneas (no finge topología)", (await ev("document.querySelectorAll('svg.graph line, svg.graph path').length")) === 0);
+  check("el grafo sí dibuja un punto por commit", (await ev("document.querySelectorAll('svg.graph circle').length")) === 4);
+  await ev("Array.from(document.querySelectorAll('.filter-info button')).find((b) => /ver todo/.test(b.textContent)).click()");
+  await waitFor("document.querySelector('.filter-info')?.textContent.includes('Historial de') ? null : 1");
+  // Igual que al entrar: el banner se va al instante, la lista completa vuelve al terminar la recarga.
+  await waitFor(`document.querySelectorAll('.commit').length === ${total} ? 1 : null`).catch(() => {});
+  check("«ver todo» vuelve al historial completo", (await filas()).length === total, `${(await filas()).length} vs ${total}`);
+  check("«ver todo» vuelve a dibujar las líneas del grafo", (await ev("document.querySelectorAll('svg.graph line, svg.graph path').length")) > 0);
+
+  // 3b. Revert con conflicto: c4 (añade «x») choca con c7 (añade «y» justo debajo).
+  const antesRevert = git(P, "rev-parse", "HEAD");
+  await rightClick(commitRow("c4 toca b"));
+  await waitFor("document.querySelector('.ctx-menu') ? 1 : null");
+  const itemsC = await menuItems();
+  check("el menú de un commit incluye Revert y los tres Reset",
+    ["Revert de este commit…", "Reset soft a este commit…", "Reset mixed a este commit…", "Reset hard a este commit…"].every((x) => itemsC.includes(x)), itemsC.join("|"));
+  check("Reset hard va en rojo", (await ev("document.querySelector('.ctx-menu button.danger')?.textContent.trim()")) === "Reset hard a este commit…");
+  await answer("", [true]);
+  await clickBtn(".ctx-menu", "Revert de este commit…");
+  check("revert con conflicto: aparece el banner «Revert en curso»",
+    await waitFor("document.querySelector('.conflict-banner')?.textContent.includes('Revert en curso') ? 1 : null").then(() => true, () => false));
+  check("revert con conflicto: git tiene REVERT_HEAD", existsSync(join(P, ".git", "REVERT_HEAD")));
+  await clickBtn(".conflict-banner", "Abortar");
+  check("abortar el revert: desaparece el banner y HEAD queda exacto",
+    await waitFor("document.querySelector('.conflict-banner') ? null : 1").then(() => true, () => false) && git(P, "rev-parse", "HEAD") === antesRevert);
+  await rightClick(commitRow("c4 toca b"));
+  await waitFor("document.querySelector('.ctx-menu') ? 1 : null");
+  await clickBtn(".ctx-menu", "Revert de este commit…");
+  await waitFor("document.querySelector('.conflict-banner') ? 1 : null");
+  put(P, "b.txt", cuerpo + "resuelto\n");
+  git(P, "add", "-A");
+  await clickBtn(".conflict-banner", "Continuar");
+  check("continuar el revert: se crea el commit «Revert»", await waitGit(() => !existsSync(join(P, ".git", "REVERT_HEAD")) && subjectsP()[0].startsWith("Revert")));
+
+  // 3c. Revert limpio (c6 solo añade m.txt) y merge no revertible.
+  await reloadWith([rootP], rootP);
+  await rightClick(commitRow("c6 en master"));
+  await waitFor("document.querySelector('.ctx-menu') ? 1 : null");
+  await answer("", [true]);
+  const nAntes = Number(git(P, "rev-list", "--count", "HEAD"));
+  await clickBtn(".ctx-menu", "Revert de este commit…");
+  check("revert limpio: commit nuevo (historia +1) y m.txt desaparece",
+    await waitGit(() => Number(git(P, "rev-list", "--count", "HEAD")) === nAntes + 1 && !existsSync(join(P, "m.txt"))));
+  await reloadWith([rootP], rootP);
+  await rightClick(commitRow("Merge branch 'rm'"));
+  await waitFor("document.querySelector('.ctx-menu') ? 1 : null");
+  check("un commit de fusión no se puede revertir (deshabilitado)", (await menuItems()).includes("Revert de este commit… [off]"), (await menuItems()).join("|"));
+  await send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+
+  // 3d. Reset. Se parte siempre de la punta original para que cada modo sea comparable.
+  const irATip = () => { git(P, "reset", "-q", "--hard", tipP); git(P, "clean", "-fdq"); };
+  irATip();
+  await reloadWith([rootP], rootP);
+
+  // Rechazar la confirmación no mueve nada.
+  await answer("", [false]);
+  await rightClick(commitRow("c2 otro"));
+  await waitFor("document.querySelector('.ctx-menu') ? 1 : null");
+  await clickBtn(".ctx-menu", "Reset hard a este commit…");
+  await sleep(700);
+  check("reset: si se rechaza la confirmación no se mueve nada", git(P, "rev-parse", "HEAD") === tipP);
+
+  // hard con un cambio sin guardar y un archivo sin seguir: la confirmación NOMBRA lo que se pierde.
+  put(P, "b.txt", "cambio sucio\n");
+  put(P, "sin_seguir.txt", "u\n");
+  await reloadWith([rootP], rootP);
+  await answer("", [true]);
+  await rightClick(commitRow("c2 otro"));
+  await waitFor("document.querySelector('.ctx-menu') ? 1 : null");
+  await clickBtn(".ctx-menu", "Reset hard a este commit…");
+  check("reset hard: HEAD queda en el commit elegido", await waitGit(() => git(P, "rev-parse", "HEAD") === p2));
+  const msgHard = (await msgs())[0] ?? "";
+  check("reset hard: la confirmación nombra el archivo que se pierde", msgHard.includes("b.txt") && msgHard.includes("SE PERDERÁN"), msgHard.replace(/\n/g, " ⏎ "));
+  check("reset hard: NO menciona el archivo sin seguir como perdido", !msgHard.includes("  • sin_seguir.txt"), msgHard.replace(/\n/g, " ⏎ "));
+  check("reset hard: el archivo sin seguir sobrevive", existsSync(join(P, "sin_seguir.txt")));
+  check("reset hard: descarta el cambio sin guardar (b.txt ya no existe en c2)", !existsSync(join(P, "b.txt")));
+
+  // soft: la rama se mueve y los cambios quedan preparados.
+  irATip();
+  await reloadWith([rootP], rootP);
+  await answer("", [true]);
+  await rightClick(commitRow("c2 otro"));
+  await waitFor("document.querySelector('.ctx-menu') ? 1 : null");
+  await clickBtn(".ctx-menu", "Reset soft a este commit…");
+  check("reset soft: HEAD se mueve", await waitGit(() => git(P, "rev-parse", "HEAD") === p2));
+  check("reset soft: los cambios quedan preparados (staged)", git(P, "diff", "--cached", "--name-only").length > 0);
+  check("reset soft: la confirmación NO habla de perder cambios", !((await msgs())[0] ?? "").includes("SE PERDERÁN"));
+
+  // mixed: la rama se mueve y los cambios quedan en la carpeta sin preparar.
+  irATip();
+  await reloadWith([rootP], rootP);
+  await answer("", [true]);
+  await rightClick(commitRow("c2 otro"));
+  await waitFor("document.querySelector('.ctx-menu') ? 1 : null");
+  await clickBtn(".ctx-menu", "Reset mixed a este commit…");
+  check("reset mixed: HEAD se mueve", await waitGit(() => git(P, "rev-parse", "HEAD") === p2));
+  check("reset mixed: nada preparado y el contenido sigue en la carpeta",
+    git(P, "diff", "--cached", "--name-only") === "" && existsSync(join(P, "b.txt")));
 } finally {
   await restoreLS();
   ws.close();

@@ -30,6 +30,8 @@ export function getLog(
   filterMode: LogFilterMode = "none",
   filterQuery = "",
   filterBranch: string | null = null,
+  /** Historial de UN archivo (ruta relativa); manda sobre `filterMode`/`filterQuery`. */
+  filterFile: string | null = null,
 ): Promise<Commit[]> {
   return invoke("get_log", {
     path,
@@ -38,6 +40,7 @@ export function getLog(
     filterMode,
     filterQuery,
     filterBranch,
+    filterFile,
   });
 }
 
@@ -177,6 +180,18 @@ export function rebaseOnto(path: string, onto: string): Promise<void> {
 /** `from` va cualificada: `refs/heads/x` o `refs/remotes/o/x`. */
 export function mergeBranch(path: string, from: string): Promise<void> {
   return invoke("merge_branch", { path, from });
+}
+
+/** Commit nuevo que deshace `hash`. Un conflicto deja un revert en curso (`opState`). */
+export function revertCommit(path: string, hash: string): Promise<void> {
+  return invoke("revert_commit", { path, hash });
+}
+
+export type ResetMode = "soft" | "mixed" | "hard";
+
+/** Mueve la rama actual a `hash`. `hard` descarta los cambios sin guardar. */
+export function resetTo(path: string, hash: string, mode: ResetMode): Promise<void> {
+  return invoke("reset_to", { path, hash, mode });
 }
 
 /** Crea la rama y cambia a ella. `at`: hash de partida; sin él, HEAD. */
