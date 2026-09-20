@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+# Windows a propósito: `cargo test` compila el crate de Tauri entero y en Linux
+# exige webkit2gtk/GTK. El proyecto es solo Windows (WebView2), así que el
+# runner también. Los E2E de scripts/cdp/ NO corren aquí: necesitan una ventana
+# WebView2 viva y fixtures.
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Rust estable
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      # Antes que `cargo test`: `generate_context!` exige que exista `../dist`
+      # (frontendDist), que está en .gitignore. Incluye `tsc`.
+      - name: Frontend (tsc + vite build)
+        run: npm run build
+
+      - name: Tests de Rust
+        run: cargo test --manifest-path src-tauri/Cargo.toml
