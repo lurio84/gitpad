@@ -1248,11 +1248,13 @@ pub fn delete_tag(repo: &Path, name: &str) -> GitResult<()> {
     run_git(repo, &["tag", "-d", "--end-of-options", name]).map(|_| ())
 }
 
-/// Todos los tags locales, orden alfabético. `%(refname:short)` es seguro
-/// aquí (a diferencia de `branches()`): esto solo lista, no se le pasa a
-/// `checkout`, así que no hay ambigüedad con una rama homónima.
+/// Todos los tags locales, orden alfabético. `%(refname:short)` NO vale
+/// aquí: igual que en `branches()`, un tag que comparte nombre con una rama
+/// sale desambiguado como `tags/<nombre>` (comprobado en vivo) — y ese nombre
+/// roto se le pasaría después a `delete_tag`/tags remotos. Se usa
+/// `%(refname)` completo y se quita el prefijo a mano.
 pub fn list_tags(repo: &Path) -> GitResult<Vec<Tag>> {
-    let fmt = format!("%(refname:short){FS}%(objectname){FS}%(*objectname)");
+    let fmt = format!("%(refname){FS}%(objectname){FS}%(*objectname)");
     let out = run_git(
         repo,
         &["for-each-ref", "--sort=refname", &format!("--format={fmt}"), "refs/tags"],
@@ -1270,10 +1272,13 @@ pub fn list_tags(repo: &Path) -> GitResult<Vec<Tag>> {
                 f.len()
             )));
         }
+        let Some(name) = f[0].strip_prefix("refs/tags/") else {
+            continue; // ref inesperada (no debería salir de refs/tags)
+        };
         // Anotado: `*objectname` es el commit señalado (objectname es el tag
         // object). Ligero: `*objectname` sale vacío, objectname YA es el commit.
         let target = if !f[2].is_empty() { f[2].to_string() } else { f[1].to_string() };
-        tags.push(Tag { name: f[0].to_string(), target });
+        tags.push(Tag { name: name.to_string(), target });
     }
     Ok(tags)
 }

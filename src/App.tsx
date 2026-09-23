@@ -976,6 +976,7 @@ function App() {
     {
       label: "Borrar…",
       danger: true,
+      disabled: menuBusy,
       onSelect: () => doDeleteTag(root, t.name),
     },
   ];
