@@ -6,8 +6,10 @@ import {
   createBranch,
   createTag,
   deleteBranch,
+  deleteRemoteTag,
   deleteTag,
   discardPaths,
+  fetchBranch,
   fetchRemote,
   getBranches,
   getCommitDiff,
@@ -28,7 +30,10 @@ import {
   openRepo,
   pickRepoFolder,
   pullRemote,
+  pushBranch,
+  pushNewBranch,
   pushRemote,
+  pushTagRemote,
   rebaseOnto,
   renameBranch,
   resetTo,
@@ -717,6 +722,44 @@ function App() {
     [refOp],
   );
 
+  // Pull/push de una rama LOCAL que no es la activa (la activa sigue usando
+  // doRemote/los botones de la topbar, sin cambios). `remote`/`remoteRef`
+  // vienen de `Branch.upstream_remote`/`upstream_ref`: nunca se reconstruyen
+  // a mano (una rama puede trackear una remota de otro nombre).
+  const doFetchBranch = useCallback(
+    (root: string, b: Branch) => {
+      if (!b.upstream_remote || !b.upstream_ref) return;
+      void refOp(root, () => fetchBranch(root, b.name, b.upstream_remote!, b.upstream_ref!));
+    },
+    [refOp],
+  );
+
+  const doPushBranch = useCallback(
+    (root: string, b: Branch) => {
+      void refOp(root, () =>
+        b.upstream_remote && b.upstream_ref
+          ? pushBranch(root, b.name, b.upstream_remote, b.upstream_ref)
+          : pushNewBranch(root, b.name),
+      );
+    },
+    [refOp],
+  );
+
+  const doPushTagRemote = useCallback(
+    (root: string, name: string) => {
+      void refOp(root, () => pushTagRemote(root, name));
+    },
+    [refOp],
+  );
+
+  const doDeleteRemoteTag = useCallback(
+    (root: string, name: string) => {
+      if (!window.confirm(`¿Borrar el tag "${name}" del remoto? El local no se toca.`)) return;
+      void refOp(root, () => deleteRemoteTag(root, name));
+    },
+    [refOp],
+  );
+
   const applyFilter = useCallback(
     (root: string, mode: LogFilterMode, query: string) => {
       // Buscar deja el lente de archivo: los dos no se combinan.
@@ -927,6 +970,14 @@ function App() {
   const openMenu = (ev: React.MouseEvent, heading: string, items: MenuItem[]) => {
     ev.preventDefault();
     ev.stopPropagation();
+    // Un clic activado por teclado (Enter/Espacio en el botón "⋯") llega con
+    // clientX/Y en 0: se posiciona con el rect del propio elemento en vez de
+    // clavar el menú en la esquina.
+    if (ev.clientX === 0 && ev.clientY === 0) {
+      const r = ev.currentTarget.getBoundingClientRect();
+      setMenu({ x: r.left, y: r.bottom, heading, items });
+      return;
+    }
     setMenu({ x: ev.clientX, y: ev.clientY, heading, items });
   };
   // Con una operación a medias (conflicto) o en marcha solo quedan vivos
@@ -946,6 +997,21 @@ function App() {
     ...(b.is_remote
       ? []
       : [
+          {
+            label: "Pull",
+            // La activa reutiliza doRemote (topbar); una bloqueada por otro
+            // worktree la rechazaría igual que a fetch --branch:branch.
+            disabled: menuBusy || blocked || (!b.is_head && !b.upstream_ref),
+            title: !b.is_head && !b.upstream_ref ? "Sin upstream configurado" : undefined,
+            onSelect: () =>
+              b.is_head ? void doRemote(root, "pull") : doFetchBranch(root, b),
+          },
+          {
+            label: "Push",
+            disabled: menuBusy || blocked,
+            onSelect: () =>
+              b.is_head ? void doRemote(root, "push") : doPushBranch(root, b),
+          },
           { label: "Renombrar…", disabled: menuBusy, onSelect: () => doRenameBranch(root, b) },
           {
             label: "Borrar…",
@@ -978,6 +1044,19 @@ function App() {
       danger: true,
       disabled: menuBusy,
       onSelect: () => doDeleteTag(root, t.name),
+    },
+    {
+      label: "Subir al remoto",
+      disabled: menuBusy,
+      onSelect: () => doPushTagRemote(root, t.name),
+    },
+    {
+      label: "Borrar del remoto…",
+      danger: true,
+      disabled: menuBusy,
+      // No exige que el tag exista local: se puede borrar del remoto
+      // después de borrarlo aquí, o sin haberlo tenido nunca local.
+      onSelect: () => doDeleteRemoteTag(root, t.name),
     },
   ];
   const commitItems = (root: string, c: Commit): MenuItem[] => {

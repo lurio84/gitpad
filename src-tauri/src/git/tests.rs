@@ -1186,6 +1186,157 @@ fn fetch_pull_push_contra_origin_bare_local() {
     );
 }
 
+/// Pull/push de una rama LOCAL que no es la activa (tanda D), y tags remotos.
+/// Repite el patrón de fixture del test anterior: un bare local como origin,
+/// dos clones como dos máquinas distintas.
+#[test]
+fn fetch_push_branch_no_activa_y_tags_remotos() {
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    let base: PathBuf = std::env::temp_dir().join(format!(
+        "gitpad-branch-remote-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let origin = base.join("origin.git");
+    let clone_a = base.join("a");
+    let clone_b = base.join("b");
+    std::fs::create_dir_all(&origin).unwrap();
+    let _guard = scopeguard(&base);
+
+    let git = |dir: &std::path::Path, args: &[&str]| {
+        Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .map(|o| (o.status.success(), String::from_utf8_lossy(&o.stdout).into_owned()))
+            .unwrap_or((false, String::new()))
+    };
+    if !git(&origin, &["init", "-q", "--bare", "-b", "master"]).0 {
+        eprintln!("git no disponible, se salta el test");
+        return;
+    }
+    let remote_refs = || git(&origin, &["for-each-ref", "--format=%(refname)"]).1;
+
+    assert!(git(&base, &["clone", "-q", origin.to_str().unwrap(), "a"]).0);
+    git(&clone_a, &["config", "user.email", "a@t"]);
+    git(&clone_a, &["config", "user.name", "a"]);
+    std::fs::write(clone_a.join("f.txt"), "0\n").unwrap();
+    git(&clone_a, &["add", "-A"]);
+    git(&clone_a, &["commit", "-q", "-m", "inicial"]);
+    super::repo::push(&clone_a).expect("push del commit inicial");
+
+    // --- push_new_branch: rama local nueva, sin checkout, sin upstream ---
+    git(&clone_a, &["branch", "feat"]); // no checkout: master sigue activa
+    super::repo::push_new_branch(&clone_a, "feat").expect("push de una rama nueva sin upstream");
+    assert!(remote_refs().contains("refs/heads/feat"), "feat debe existir en origin");
+    let feat = super::repo::branches(&clone_a)
+        .unwrap()
+        .into_iter()
+        .find(|b| b.name == "feat")
+        .expect("feat debe listarse tras el push");
+    assert_eq!(feat.upstream_remote.as_deref(), Some("origin"));
+    assert_eq!(feat.upstream_ref.as_deref(), Some("refs/heads/feat"));
+
+    // --- fetch_branch: b avanza "feat", a la trae sin checkout ---
+    assert!(git(&base, &["clone", "-q", origin.to_str().unwrap(), "b"]).0);
+    git(&clone_b, &["config", "user.email", "b@t"]);
+    git(&clone_b, &["config", "user.name", "b"]);
+    git(&clone_b, &["checkout", "-q", "feat"]);
+    std::fs::write(clone_b.join("g.txt"), "0\n").unwrap();
+    git(&clone_b, &["add", "-A"]);
+    git(&clone_b, &["commit", "-q", "-m", "de b en feat"]);
+    super::repo::push(&clone_b).expect("push de b en feat");
+
+    let feat_before = git(&clone_a, &["rev-parse", "feat"]).1.trim().to_string();
+    super::repo::fetch_branch(&clone_a, "feat", "origin", "refs/heads/feat")
+        .expect("fetch_branch fast-forward");
+    let feat_after = git(&clone_a, &["rev-parse", "feat"]).1.trim().to_string();
+    assert_ne!(feat_before, feat_after, "feat en a debe avanzar tras el fetch_branch");
+    assert_eq!(feat_after, git(&clone_b, &["rev-parse", "feat"]).1.trim());
+    // master (la activa en a) no se ha tocado.
+    assert_eq!(git(&clone_a, &["symbolic-ref", "--short", "HEAD"]).1.trim(), "master");
+
+    // --- push_branch: a comitea en feat sin dejarla como activa, la sube ---
+    git(&clone_a, &["checkout", "-q", "feat"]);
+    std::fs::write(clone_a.join("h.txt"), "0\n").unwrap();
+    git(&clone_a, &["add", "-A"]);
+    git(&clone_a, &["commit", "-q", "-m", "de a en feat"]);
+    git(&clone_a, &["checkout", "-q", "master"]); // feat deja de ser la activa
+    super::repo::push_branch(&clone_a, "feat", "origin", "refs/heads/feat")
+        .expect("push_branch de una rama no activa");
+    git(&clone_b, &["fetch", "-q", "origin"]);
+    assert_eq!(
+        git(&clone_a, &["rev-parse", "feat"]).1.trim(),
+        git(&clone_b, &["rev-parse", "origin/feat"]).1.trim(),
+        "origin/feat debe reflejar el commit subido desde a"
+    );
+
+    // --- fetch_branch NO fast-forward: diverge de verdad, no toca nada ---
+    // b sincroniza su "feat" con lo que a acaba de subir (si no, el push de
+    // b de abajo fallaría por quedarse detrás, no por una divergencia real).
+    git(&clone_b, &["fetch", "-q", "origin"]);
+    git(&clone_b, &["checkout", "-q", "-B", "feat", "origin/feat"]);
+    std::fs::write(clone_b.join("i.txt"), "0\n").unwrap();
+    git(&clone_b, &["add", "-A"]);
+    git(&clone_b, &["commit", "-q", "-m", "de b, diverge"]);
+    super::repo::push(&clone_b).expect("push de b, diverge");
+
+    git(&clone_a, &["checkout", "-q", "feat"]);
+    std::fs::write(clone_a.join("j.txt"), "0\n").unwrap();
+    git(&clone_a, &["add", "-A"]);
+    git(&clone_a, &["commit", "-q", "-m", "de a, diverge también"]);
+    git(&clone_a, &["checkout", "-q", "master"]);
+    let feat_local_before = git(&clone_a, &["rev-parse", "feat"]).1.trim().to_string();
+    assert!(
+        super::repo::fetch_branch(&clone_a, "feat", "origin", "refs/heads/feat").is_err(),
+        "no fast-forward: debe fallar, no forzar"
+    );
+    assert_eq!(
+        git(&clone_a, &["rev-parse", "feat"]).1.trim(),
+        feat_local_before,
+        "un fetch_branch rechazado no debe tocar la ref local"
+    );
+
+    // --- fetch_branch rechaza la rama activa (la comprueba git, no nosotros) ---
+    git(&clone_a, &["checkout", "-q", "feat"]);
+    assert!(
+        super::repo::fetch_branch(&clone_a, "feat", "origin", "refs/heads/feat").is_err(),
+        "fetch_branch sobre la rama activa debe fallar"
+    );
+    git(&clone_a, &["checkout", "-q", "master"]);
+
+    // --- tags remotos: tag y rama "v1" homónimos ---
+    git(&clone_a, &["branch", "v1"]);
+    super::repo::push_new_branch(&clone_a, "v1").expect("push de la rama v1");
+    super::repo::create_tag(&clone_a, "v1", None).expect("tag local v1");
+    super::repo::push_tag(&clone_a, "v1").expect("push del tag v1");
+    assert!(remote_refs().contains("refs/tags/v1"), "el tag debe llegar al remoto");
+    assert!(remote_refs().contains("refs/heads/v1"), "la rama debe seguir en el remoto");
+
+    super::repo::delete_remote_tag(&clone_a, "v1").expect("borrar el tag remoto");
+    let after_tag_delete = remote_refs();
+    assert!(!after_tag_delete.contains("refs/tags/v1"), "el tag remoto debe desaparecer");
+    assert!(
+        after_tag_delete.contains("refs/heads/v1"),
+        "borrar el tag remoto no debe tocar la rama homónima"
+    );
+
+    // push_tag sobre un tag inexistente: error, sin tocar el remoto.
+    assert!(super::repo::push_tag(&clone_a, "no-existe").is_err());
+
+    // delete_remote_tag NO exige que el tag exista local (a propósito).
+    super::repo::create_tag(&clone_a, "v2", None).expect("tag local v2");
+    super::repo::push_tag(&clone_a, "v2").expect("push del tag v2");
+    git(&clone_a, &["tag", "-d", "v2"]); // se borra solo local
+    super::repo::delete_remote_tag(&clone_a, "v2").expect("borrar del remoto sin tenerlo local");
+    assert!(!remote_refs().contains("refs/tags/v2"));
+}
+
 /// `push` en HEAD desprendido falla con mensaje legible, sin llegar a
 /// invocar `git push -u <remoto> <rama>` con una rama inexistente.
 #[test]
@@ -2371,13 +2522,14 @@ fn branches_parsea_locales_remotas_y_worktree() {
     use super::repo::parse_branch_lines_for_test as parse;
     const FS: char = '\u{1f}';
     let raw = format!(
-        "refs/heads/master{FS}origin/master{FS}/repo{FS}*\n\
-         refs/heads/wt-target{FS}{FS}/otro/worktree{FS}\n\
-         refs/remotes/origin/master{FS}{FS}{FS}\n\
-         refs/remotes/origin/HEAD{FS}{FS}{FS}\n"
+        "refs/heads/master{FS}origin/master{FS}/repo{FS}*{FS}origin{FS}refs/heads/master\n\
+         refs/heads/tigre{FS}origin/oso{FS}{FS}{FS}origin{FS}refs/heads/oso\n\
+         refs/heads/wt-target{FS}{FS}/otro/worktree{FS}{FS}{FS}\n\
+         refs/remotes/origin/master{FS}{FS}{FS}{FS}{FS}\n\
+         refs/remotes/origin/HEAD{FS}{FS}{FS}{FS}{FS}\n"
     );
     let branches = parse(&raw).expect("parseo de ramas");
-    assert_eq!(branches.len(), 3, "origin/HEAD (puntero simbólico) debe descartarse");
+    assert_eq!(branches.len(), 4, "origin/HEAD (puntero simbólico) debe descartarse");
 
     let master = branches.iter().find(|b| b.name == "master").unwrap();
     assert!(master.is_head);
@@ -2385,12 +2537,24 @@ fn branches_parsea_locales_remotas_y_worktree() {
     assert_eq!(master.checkout_arg, "master");
     assert_eq!(master.upstream.as_deref(), Some("origin/master"));
     assert_eq!(master.worktree_path.as_deref(), Some("/repo"));
+    assert_eq!(master.upstream_remote.as_deref(), Some("origin"));
+    assert_eq!(master.upstream_ref.as_deref(), Some("refs/heads/master"));
+
+    // Rama local que trackea una remota de OTRO nombre: `upstream` (para
+    // mostrar) sale "origin/oso", pero `upstream_ref` es la ref REAL a la
+    // que hay que hacer fetch/push — no vale reconstruirla a mano partiendo
+    // "origin/oso" y asumiendo que la rama remota se llama "tigre".
+    let tigre = branches.iter().find(|b| b.name == "tigre").unwrap();
+    assert_eq!(tigre.upstream.as_deref(), Some("origin/oso"));
+    assert_eq!(tigre.upstream_remote.as_deref(), Some("origin"));
+    assert_eq!(tigre.upstream_ref.as_deref(), Some("refs/heads/oso"));
 
     let wt = branches.iter().find(|b| b.name == "wt-target").unwrap();
     assert!(
         !wt.is_head && wt.worktree_path.is_some(),
         "abierta en otro worktree y no es HEAD aquí: debe salir bloqueable"
     );
+    assert!(wt.upstream_remote.is_none(), "sin upstream: sin remoto");
 
     let remote = branches
         .iter()

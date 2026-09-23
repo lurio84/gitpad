@@ -114,7 +114,16 @@ pub struct Branch {
     /// completo, deja HEAD "detached" en vez de cambiar de rama — comprobado
     /// contra git 2.55.
     pub checkout_arg: String,
+    /// `"origin/master"` para mostrar (lo que ya daba `%(upstream:short)`).
     pub upstream: Option<String>,
+    /// Remoto del upstream (`"origin"`), separado del nombre de la rama
+    /// remota: una rama local puede trackear una remota de OTRO nombre
+    /// (`foo` → `origin/bar`), así que no vale partir `upstream` por `/`.
+    pub upstream_remote: Option<String>,
+    /// Ref completa del upstream en el remoto (`"refs/heads/bar"`). Lo que
+    /// hace falta para un `fetch`/`push` con refspec explícito sobre una
+    /// rama que no es la activa.
+    pub upstream_ref: Option<String>,
     /// Ruta del worktree que tiene esta rama abierta ahora mismo, si no es
     /// este. `None` si la rama no está en ningún worktree o si es la de aquí.
     pub worktree_path: Option<String>,
@@ -834,7 +843,9 @@ pub fn commit(repo: &Path, message: &str, amend: bool) -> GitResult<String> {
 /// git 2.55): con eso se puede marcar como bloqueada *antes* del clic, en vez
 /// de traducir después el error de `checkout`.
 pub fn branches(repo: &Path) -> GitResult<Vec<Branch>> {
-    let fmt = format!("%(refname){FS}%(upstream:short){FS}%(worktreepath){FS}%(HEAD)");
+    let fmt = format!(
+        "%(refname){FS}%(upstream:short){FS}%(worktreepath){FS}%(HEAD){FS}%(upstream:remotename){FS}%(upstream:remoteref)"
+    );
     let out = run_git(
         repo,
         &[
@@ -856,9 +867,9 @@ fn parse_branch_lines(raw: &str) -> GitResult<Vec<Branch>> {
             continue;
         }
         let f: Vec<&str> = line.split(FS).collect();
-        if f.len() != 4 {
+        if f.len() != 6 {
             return Err(GitError::Parse(format!(
-                "esperados 4 campos por rama, encontrados {}",
+                "esperados 6 campos por rama, encontrados {}",
                 f.len()
             )));
         }
@@ -892,6 +903,8 @@ fn parse_branch_lines(raw: &str) -> GitResult<Vec<Branch>> {
             upstream: (!f[1].is_empty()).then(|| f[1].to_string()),
             worktree_path: (!f[2].is_empty()).then(|| f[2].to_string()),
             is_head: f[3] == "*",
+            upstream_remote: (!f[4].is_empty()).then(|| f[4].to_string()),
+            upstream_ref: (!f[5].is_empty()).then(|| f[5].to_string()),
             is_remote,
         });
     }
@@ -965,6 +978,85 @@ pub fn push(repo: &Path) -> GitResult<()> {
 /// Primer remoto configurado (normalmente "origin"). Sin remoto no hay a
 /// dónde hacer push: error legible en vez de dejar que git falle con un
 /// mensaje más críptico.
+/// Trae los cambios de una rama LOCAL que no es la activa, sin checkout.
+/// `remote_ref` es la ref completa en el remoto (`Branch.upstream_ref`, p.ej.
+/// `refs/heads/bar` si `branch` trackea una remota de otro nombre). El
+/// refspec SIN `+` es lo que hace de esto un "solo si es fast-forward": si no
+/// lo es, o si `branch` resulta ser HEAD aquí o está abierta en otro
+/// worktree, es GIT quien lo rechaza (comprobado en vivo) — no hace falta
+/// adivinarlo mirando su stderr, que cambia con el idioma.
+pub fn fetch_branch(repo: &Path, branch: &str, remote: &str, remote_ref: &str) -> GitResult<()> {
+    let mut args: Vec<String> = NET_TIMEOUT.iter().map(|s| s.to_string()).collect();
+    args.push("fetch".to_string());
+    args.push("--end-of-options".to_string());
+    args.push(remote.to_string());
+    args.push(format!("{remote_ref}:refs/heads/{branch}"));
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    run_git(repo, &args).map(|_| ())
+}
+
+/// Envía una rama LOCAL que no es la activa a su remoto ya configurado.
+/// `remote_ref` es la ref completa en el remoto (`Branch.upstream_ref`): no
+/// se reconstruye a mano asumiendo que el nombre remoto coincide con el
+/// local. Sin `--force`: un push no fast-forward lo rechaza git por su cuenta.
+pub fn push_branch(repo: &Path, branch: &str, remote: &str, remote_ref: &str) -> GitResult<()> {
+    let mut args: Vec<String> = NET_TIMEOUT.iter().map(|s| s.to_string()).collect();
+    args.push("push".to_string());
+    args.push("--end-of-options".to_string());
+    args.push(remote.to_string());
+    args.push(format!("refs/heads/{branch}:{remote_ref}"));
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    run_git(repo, &args).map(|_| ())
+}
+
+/// Igual que `push_branch`, pero para una rama LOCAL sin upstream: push -u
+/// contra el primer remoto configurado, con el mismo nombre a los dos lados
+/// (misma regla que ya usa `push()` para la rama activa sin upstream).
+pub fn push_new_branch(repo: &Path, branch: &str) -> GitResult<()> {
+    let remote = first_remote(repo)?;
+    let mut args: Vec<String> = NET_TIMEOUT.iter().map(|s| s.to_string()).collect();
+    args.push("push".to_string());
+    args.push("-u".to_string());
+    args.push("--end-of-options".to_string());
+    args.push(remote);
+    args.push(branch.to_string());
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    run_git(repo, &args).map(|_| ())
+}
+
+/// Sube un tag YA EXISTENTE al remoto. `check_ref_name` no vale aquí (valida
+/// nombres NUEVOS y rechazaría uno que ya existe): mismo patrón que
+/// `delete_tag` para comprobar que existe de verdad.
+pub fn push_tag(repo: &Path, tag: &str) -> GitResult<()> {
+    if tag.starts_with('-') || !ref_exists(repo, &format!("refs/tags/{tag}")) {
+        return Err(GitError::Parse(format!("no existe el tag «{tag}»")));
+    }
+    let remote = first_remote(repo)?;
+    let mut args: Vec<String> = NET_TIMEOUT.iter().map(|s| s.to_string()).collect();
+    args.push("push".to_string());
+    args.push("--end-of-options".to_string());
+    args.push(remote);
+    args.push(format!("refs/tags/{tag}:refs/tags/{tag}"));
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    run_git(repo, &args).map(|_| ())
+}
+
+/// Borra un tag del remoto. A propósito NO exige que exista local (se puede
+/// borrar del remoto tras borrar el local, o sin haberlo tenido nunca aquí).
+pub fn delete_remote_tag(repo: &Path, tag: &str) -> GitResult<()> {
+    if tag.is_empty() || tag.starts_with('-') {
+        return Err(GitError::Parse(format!("nombre de tag inválido: «{tag}»")));
+    }
+    let remote = first_remote(repo)?;
+    let mut args: Vec<String> = NET_TIMEOUT.iter().map(|s| s.to_string()).collect();
+    args.push("push".to_string());
+    args.push("--end-of-options".to_string());
+    args.push(remote);
+    args.push(format!(":refs/tags/{tag}"));
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    run_git(repo, &args).map(|_| ())
+}
+
 fn first_remote(repo: &Path) -> GitResult<String> {
     let out = run_git(repo, &["remote"])?;
     out.lines()

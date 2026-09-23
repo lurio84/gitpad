@@ -96,6 +96,18 @@ export function BranchPanel({ active, menuBusy, openMenu, branchItems, tagItems,
                     >
                       {active.filterBranch === branchRef(b) ? "◉" : "○"}
                     </button>
+                    <button
+                      className="link branch-menu"
+                      title="Más opciones"
+                      aria-label={`Más opciones de ${b.name}`}
+                      disabled={menuBusy}
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        openMenu(ev, b.name, branchItems(active.root, b, blocked));
+                      }}
+                    >
+                      ⋯
+                    </button>
                     {locked && <span className="lock">⊘</span>}
                   </li>
                 );
@@ -118,6 +130,18 @@ export function BranchPanel({ active, menuBusy, openMenu, branchItems, tagItems,
                 onContextMenu={(ev) => openMenu(ev, t.name, tagItems(active.root, t))}
               >
                 <span className="branch-name">{t.name}</span>
+                <button
+                  className="link branch-menu"
+                  title="Más opciones"
+                  aria-label={`Más opciones de ${t.name}`}
+                  disabled={menuBusy}
+                  onClick={(ev) => {
+                    ev.stopPropagation();
+                    openMenu(ev, t.name, tagItems(active.root, t));
+                  }}
+                >
+                  ⋯
+                </button>
               </li>
             ))}
           </ul>

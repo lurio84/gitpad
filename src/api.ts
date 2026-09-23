@@ -139,6 +139,35 @@ export function pushRemote(path: string): Promise<void> {
   return invoke("push_remote", { path });
 }
 
+/** Trae una rama LOCAL que no es la activa, sin checkout. `remote`/`remoteRef`
+ * salen de `Branch.upstream_remote`/`upstream_ref` — nunca se reconstruyen a
+ * mano (una rama puede trackear una remota de otro nombre). Solo avanza si
+ * es fast-forward: si no, o si la rama resulta bloqueada, el error lo decide
+ * git, no un texto adivinado. */
+export function fetchBranch(path: string, branch: string, remote: string, remoteRef: string): Promise<void> {
+  return invoke("fetch_branch", { path, branch, remote, remoteRef });
+}
+
+/** Envía una rama LOCAL que no es la activa a su upstream ya configurado. */
+export function pushBranch(path: string, branch: string, remote: string, remoteRef: string): Promise<void> {
+  return invoke("push_branch", { path, branch, remote, remoteRef });
+}
+
+/** Igual, para una rama LOCAL sin upstream: push -u contra el primer remoto. */
+export function pushNewBranch(path: string, branch: string): Promise<void> {
+  return invoke("push_new_branch", { path, branch });
+}
+
+/** Sube un tag YA EXISTENTE al remoto (primer remoto configurado). */
+export function pushTagRemote(path: string, name: string): Promise<void> {
+  return invoke("push_tag_remote", { path, name });
+}
+
+/** Borra un tag del remoto. No exige que exista local. */
+export function deleteRemoteTag(path: string, name: string): Promise<void> {
+  return invoke("delete_remote_tag", { path, name });
+}
+
 export function getOpState(path: string): Promise<OpState | null> {
   return invoke("get_op_state", { path });
 }

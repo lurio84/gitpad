@@ -588,7 +588,25 @@ body.resizing {
   color: var(--accent);
 }
 
-.branch-item .branch-filter + .lock {
+/* "⋯" (más opciones): mismo criterio que el filtro — siempre visible
+ * atenuado, nunca `opacity: 0` (lección de v0.5.0: invisible sin hover es
+ * "no existe" para Bernardo). */
+.branch-item .branch-menu {
+  padding: 0 2px;
+  font-size: var(--fs-meta);
+  color: var(--ink-dim);
+  text-decoration: none;
+  opacity: 0.55;
+}
+
+.branch-item:hover .branch-menu,
+.branch-item .branch-menu:focus-visible {
+  opacity: 1;
+}
+
+/* `~`, no `+`: el "⋯" puede colarse entre el filtro y el candado, y solo uno
+ * de los dos necesita el margen que empuja el grupo a la derecha. */
+.branch-item .branch-filter ~ .lock {
   margin-left: 0;
 }
 

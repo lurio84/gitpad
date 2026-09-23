@@ -65,6 +65,31 @@ fn push_remote(path: String) -> GitResult<()> {
 }
 
 #[tauri::command(async)]
+fn fetch_branch(path: String, branch: String, remote: String, remote_ref: String) -> GitResult<()> {
+    git::repo::fetch_branch(Path::new(&path), &branch, &remote, &remote_ref)
+}
+
+#[tauri::command(async)]
+fn push_branch(path: String, branch: String, remote: String, remote_ref: String) -> GitResult<()> {
+    git::repo::push_branch(Path::new(&path), &branch, &remote, &remote_ref)
+}
+
+#[tauri::command(async)]
+fn push_new_branch(path: String, branch: String) -> GitResult<()> {
+    git::repo::push_new_branch(Path::new(&path), &branch)
+}
+
+#[tauri::command(async)]
+fn push_tag_remote(path: String, name: String) -> GitResult<()> {
+    git::repo::push_tag(Path::new(&path), &name)
+}
+
+#[tauri::command(async)]
+fn delete_remote_tag(path: String, name: String) -> GitResult<()> {
+    git::repo::delete_remote_tag(Path::new(&path), &name)
+}
+
+#[tauri::command(async)]
 fn get_op_state(path: String) -> GitResult<Option<OpState>> {
     git::repo::op_state(Path::new(&path))
 }
@@ -268,6 +293,11 @@ pub fn run() {
             create_tag,
             delete_tag,
             get_tags,
+            fetch_branch,
+            push_branch,
+            push_new_branch,
+            push_tag_remote,
+            delete_remote_tag,
             get_default_base
         ])
         .run(tauri::generate_context!())

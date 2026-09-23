@@ -64,7 +64,14 @@ export interface Branch {
   name: string;
   /** Lo que se pasa a `checkoutBranch` (nunca `name` directamente). */
   checkout_arg: string;
+  /** "origin/master", para mostrar. */
   upstream: string | null;
+  /** Remoto del upstream ("origin"), separado del nombre de la rama remota:
+   * una local puede trackear una remota de OTRO nombre. */
+  upstream_remote: string | null;
+  /** Ref completa del upstream ("refs/heads/bar"): lo que hace falta para
+   * fetch/push con refspec explícito sobre una rama que no es la activa. */
+  upstream_ref: string | null;
   /** Ruta del worktree que la tiene abierta ahora, si no es esta. */
   worktree_path: string | null;
   is_head: boolean;
