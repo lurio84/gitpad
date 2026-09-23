@@ -403,6 +403,77 @@ try {
   check("cherry-pick sin error", (await lastError()) === null);
   check("el commit de cherry-pick llegó a master", git(A, "log", "--format=%s").includes("commit para cherry-pick"));
 
+  // ===== 11. Selección persiste tras reload (stage/unstage/commit) =====
+  // Antes de este cambio, `reload()` siempre limpiaba `sel`: cada stage,
+  // unstage o commit colapsaba el centro y el panel derecho volvía a su
+  // ancho de "colapsado" — Bernardo tenía que reseleccionar cada vez.
+  console.log("\n# 11. Selección persiste tras reload");
+  put(A, "sel1.txt", "uno\n");
+  put(A, "sel2.txt", "dos\n");
+  await reloadWith([rootA], rootA);
+  await waitFor("Array.from(document.querySelectorAll('.entry')).some((e) => e.textContent.includes('sel1.txt')) ? 1 : null");
+  // 11a. Archivo sin preparar seleccionado → se hace stage de OTRO archivo →
+  // sigue seleccionado en Unstaged, centro sigue expandido, mismo ancho.
+  await ev(`(() => {
+    const row = Array.from(document.querySelectorAll('.entry')).find((e) => e.textContent.includes('sel1.txt'));
+    row.click(); return 1; })()`);
+  await sleep(300);
+  check("11a. sel1.txt queda seleccionado (Unstaged)", await ev("document.querySelector('.entry.sel')?.textContent.includes('sel1.txt')"));
+  const widthBeforeStage = await ev("document.querySelector('.diffpane')?.getBoundingClientRect().width ?? null");
+  await ev(`(() => {
+    const row = Array.from(document.querySelectorAll('.entry')).find((e) => e.textContent.includes('sel2.txt'));
+    row.querySelector('button')?.click(); return 1; })()`); // stage de sel2.txt (botón ＋ de esa fila)
+  await sleep(500);
+  // Guardián de no-vacuidad: si el clic no llegó a disparar `toggleStage`,
+  // todo lo de abajo pasaría en falso (nada habría cambiado de verdad).
+  check("11a. sel2.txt SÍ quedó preparado de verdad (git)", git(A, "diff", "--cached", "--name-only").split("\n").includes("sel2.txt"));
+  check("11a. tras stage de OTRO archivo, sel1.txt sigue seleccionado", await ev("document.querySelector('.entry.sel')?.textContent.includes('sel1.txt')"));
+  check("11a. centro no colapsa", (await ev("document.querySelector('.body').classList.contains('diff-collapsed')")) === false);
+  const widthAfterStage = await ev("document.querySelector('.diffpane')?.getBoundingClientRect().width ?? null");
+  check("11a. el panel derecho no salta de ancho", Math.abs(widthAfterStage - widthBeforeStage) < 2, `${widthBeforeStage} -> ${widthAfterStage}`);
+
+  // 11b. El propio archivo seleccionado cambia de lado (se le hace stage a
+  // ÉL): se sigue al lado Staged, no se pierde la selección, y su diff se
+  // vuelve a pedir de verdad (no se queda vacío por una carrera con `sel`
+  // leído del updater de `setTabs` en vez de un valor ya resuelto).
+  await ev(`(() => {
+    const row = Array.from(document.querySelectorAll('.entry')).find((e) => e.textContent.includes('sel1.txt'));
+    row.querySelector('button')?.click(); return 1; })()`);
+  await sleep(500);
+  check("11b. sel1.txt SÍ quedó preparado de verdad (git)", git(A, "diff", "--cached", "--name-only").split("\n").includes("sel1.txt"));
+  const sel1bSection = await ev(`(() => {
+    const row = document.querySelector('.entry.sel');
+    if (!row || !row.textContent.includes('sel1.txt')) return 'lost';
+    return row.closest('ul')?.previousElementSibling?.querySelector('h3')?.textContent ?? 'sin-cabecera'; })()`);
+  check("11b. sel1.txt se sigue al lado Staged", sel1bSection === "Staged", sel1bSection);
+  check("11b. centro sigue expandido", (await ev("document.querySelector('.body').classList.contains('diff-collapsed')")) === false);
+  await waitFor("document.querySelector('.diffpane')?.textContent.includes('uno') ? 1 : null");
+  check("11b. el diff SÍ se recargó (contenido real, no vacío)", await ev("document.querySelector('.diffpane')?.textContent.includes('uno')"));
+
+  // 11c. Un commit seleccionado sobrevive a una recarga real (botón
+  // "Recargar", siempre visible). El panel derecho, mientras haya un commit
+  // seleccionado, muestra "Archivos del commit" en vez de "Cambios" (no hay
+  // forma de ver el árbol de trabajo ahí) — la prueba de que la recarga trajo
+  // datos frescos de verdad usa el panel de RAMAS (izquierda, siempre visible
+  // pase lo que pase con `sel`): crear una rama por git y comprobar que
+  // aparece en la lista tras "Recargar".
+  // Nota: crear una rama nueva en HEAD añade un chip de ref a esa misma fila,
+  // así que comparar por `textContent` de toda la fila daría un falso
+  // negativo — se usa el hash corto de `.commit-meta code`, que no cambia.
+  const commitHash = () => ev("document.querySelector('.commit.sel .commit-meta code')?.textContent ?? null");
+  await ev("document.querySelector('.commit:not(.wip)').click(); true");
+  await sleep(300);
+  const commitSelHash = await commitHash();
+  git(A, "branch", "recien-creada-11c");
+  const refreshClicked = await clickBtn(".topbar", "Recargar");
+  check("11c. el botón «Recargar» estaba habilitado y se clicó", refreshClicked);
+  await waitFor("Array.from(document.querySelectorAll('.branch-name')).some((e) => e.textContent === 'recien-creada-11c') ? 1 : null");
+  check("11c. la recarga SÍ trajo la rama nueva (prueba de que no fue vacía)", await ev("Array.from(document.querySelectorAll('.branch-name')).some((e) => e.textContent === 'recien-creada-11c')"));
+  check("11c. el commit sigue seleccionado tras Recargar", await ev("document.querySelector('.commit.sel') ? 1 : null"));
+  check("11c. sigue siendo EL MISMO commit", (await commitHash()) === commitSelHash, `${commitSelHash} -> ${await commitHash()}`);
+  check("11c. centro sigue expandido", (await ev("document.querySelector('.body').classList.contains('diff-collapsed')")) === false);
+  git(A, "branch", "-D", "recien-creada-11c"); // limpiar: deja el repo listo para lo que venga después.
+
   check("sin errores de consola", consoleErrors.length === 0, consoleErrors.join(" | "));
 } finally {
   await restoreLS();

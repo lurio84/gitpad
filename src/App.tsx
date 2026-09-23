@@ -74,6 +74,11 @@ import "./App.css";
 
 function App() {
   const [tabs, setTabs] = useState<Tab[]>([]);
+  // Espejo síncrono de `tabs` para código que necesita leer el estado actual
+  // sin esperar al próximo render (p. ej. `reload` decidiendo qué hacer con
+  // `sel` antes de llamar a `loadDiff`, fuera del updater de `setTabs`).
+  const tabsRef = useRef<Tab[]>([]);
+  tabsRef.current = tabs;
   const [filesView, setFilesView] = useFilesView();
   const [activeRoot, setActiveRoot] = useState<string | null>(null);
   // Sin nada seleccionado (ni commit ni archivo de "Cambios") la columna de
@@ -139,6 +144,43 @@ function App() {
           getDefaultBase(info.root),
         ]);
         if (gens.current.get(root) !== gen) return;
+        // La selección sobrevive a la recarga si sigue teniendo sentido: un
+        // commit se mantiene si sigue en el log (es inmutable, no hace falta
+        // recargar su diff); un archivo se sigue al lado (staged/unstaged) en
+        // el que aparezca ahora, y se pierde solo si ya no está en absoluto
+        // (se descartó, se commiteó, etc.). Sin esto cada stage/commit/pull
+        // colapsaba el centro y volvía a expandirlo al reseleccionar.
+        // Se lee de `tabsRef` (no del updater de `setTabs`, que puede correr
+        // más tarde durante el render) porque hace falta decidir YA si hay
+        // que llamar a `loadDiff` a continuación.
+        const prevSel = tabsRef.current.find((t) => t.root === root)?.sel ?? null;
+        let sel = prevSel;
+        if (sel !== null && sel.t === "commit") {
+          const hash = sel.hash;
+          if (!log.some((c) => c.hash === hash)) sel = null;
+        } else if (sel !== null && sel.t === "file") {
+          const path = sel.path;
+          const staged = sel.staged;
+          const entry = st.entries.find((e) => e.path === path);
+          if (!entry) {
+            sel = null;
+          } else if (staged) {
+            sel =
+              entry.staged !== "."
+                ? sel
+                : entry.unstaged !== "."
+                  ? { t: "file", path: entry.path, staged: false, untracked: entry.unstaged === "?" }
+                  : null;
+          } else {
+            sel =
+              entry.unstaged !== "."
+                ? { t: "file", path: entry.path, staged: false, untracked: entry.unstaged === "?" }
+                : entry.staged !== "."
+                  ? { t: "file", path: entry.path, staged: true }
+                  : null;
+          }
+        }
+        const finalSel = sel;
         setTabs((ts) =>
           ts.map((t) =>
             t.root === root
@@ -159,15 +201,19 @@ function App() {
                   rebaseTarget: t.rebaseTarget || defaultBase || "",
                   loading: false,
                   error: null,
-                  // Tras recargar, el diff podría estar obsoleto; se limpia la
-                  // selección y se vuelve a elegir.
-                  sel: null,
-                  diff: null,
+                  sel: finalSel,
+                  // El diff de un commit no cambia; el de un archivo sí puede
+                  // (por eso se vuelve a pedir abajo), así que se limpia aquí
+                  // y loadDiff lo repone.
+                  diff: finalSel?.t === "commit" ? t.diff : null,
                   diffLoading: false,
                 }
               : t,
           ),
         );
+        // El archivo seguía seleccionado (quizá cambió de lado): su diff hay
+        // que volver a pedirlo, el de working tree/staged puede ser distinto.
+        if (finalSel?.t === "file") void loadDiff(root, finalSel);
       } catch (e) {
         if (gens.current.get(root) !== gen) return;
         // La rama filtrada pudo desaparecer (fetch --prune, borrada desde otra
