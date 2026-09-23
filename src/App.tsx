@@ -1110,6 +1110,16 @@ function App() {
           </>
         )}
         {active?.loading && <div className="progress" role="progressbar" aria-label="Cargando" />}
+        <button
+          className="about-btn"
+          title="Acerca de gitpad"
+          aria-label="Acerca de gitpad"
+          onClick={() =>
+            window.alert(`gitpad v${__APP_VERSION__}\ngithub.com/lurio84/gitpad`)
+          }
+        >
+          ⓘ
+        </button>
       </header>
 
       {tabs.length > 0 && (
@@ -1263,11 +1273,12 @@ function App() {
                           ? ev.preventDefault()
                           : openMenu(ev, `${c.short_hash} ${c.subject}`, commitItems(active.root, c))
                       }
-                      onClick={() => {
+                      onClick={(ev) => {
                         // Reclicar el commit ya seleccionado lo deselecciona:
                         // vuelve al panel "Cambios" (lo mismo que clicar el
-                        // nodo //WIP, cuando lo hay).
-                        if (on) {
+                        // nodo //WIP, cuando lo hay). Ctrl/Cmd+clic deselecciona
+                        // desde cualquier commit, sin tener que reclicar el activo.
+                        if (on || ev.ctrlKey || ev.metaKey) {
                           patchTab(active.root, {
                             sel: null,
                             diff: null,
@@ -1796,6 +1807,25 @@ function App() {
                   onChange={(ev) =>
                     patchTab(active.root, { commitBody: ev.target.value })
                   }
+                  onKeyDown={(ev) => {
+                    // Ctrl+Enter commitea: mismo destino y misma guarda que el
+                    // botón, así no hace falta soltar el textarea para enviar.
+                    if (
+                      ev.key === "Enter" &&
+                      (ev.ctrlKey || ev.metaKey) &&
+                      !active.committing &&
+                      active.commitSubject.trim() &&
+                      active.opState === null
+                    ) {
+                      ev.preventDefault();
+                      void doCommit(
+                        active.root,
+                        active.commitSubject,
+                        active.commitBody,
+                        active.amend,
+                      );
+                    }
+                  }}
                 />
                 <label className="amend">
                   <input

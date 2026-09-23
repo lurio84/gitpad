@@ -231,6 +231,13 @@ button.busy::after {
   border-bottom: 1px solid var(--line);
 }
 
+.about-btn {
+  margin-left: auto;
+  font-size: 15px;
+  line-height: 1;
+  padding: 4px 8px;
+}
+
 /* Barra de carga indeterminada bajo la topbar: un segmento que cruza de
    izquierda a derecha. Absoluta, así no mueve nada al aparecer. */
 .progress {
