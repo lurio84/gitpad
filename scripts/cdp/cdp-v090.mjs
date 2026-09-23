@@ -76,6 +76,15 @@ git(B, "add", "-A");
 git(B, "commit", "-q", "-m", "de b en master");
 git(B, "push", "-q", "origin", "master");
 
+// Repo C: SIN remoto configurado, para el caso de doDeleteTag que no debe
+// preguntar por el borrado remoto (fallaría siempre).
+const C = initRepo("c");
+put(C, "x.txt", "0\n");
+git(C, "add", "-A");
+git(C, "commit", "-q", "-m", "inicial C");
+git(C, "tag", "solo-local");
+const rootC = git(C, "rev-parse", "--show-toplevel");
+
 // ---------- CDP ----------
 const list = await (await fetch(`http://localhost:${PORT}/json`)).json();
 const target = list.find(
@@ -273,8 +282,25 @@ try {
   git(A, "fetch", "-q", "origin", "--prune", "--prune-tags");
   check("v1 ya no está en el remoto", git(A, "ls-remote", "origin", "refs/tags/v1").length === 0);
 
+  // ===== 5b. doDeleteTag en un repo SIN remoto: no debe preguntar dos veces =====
+  console.log("\n# 5b. Borrar tag sin remoto configurado");
+  await reloadWith([rootC], rootC);
+  await setConfirms([true]); // una sola respuesta en la cola: si pregunta dos veces, la segunda usa el default (true) y no lo detectaríamos — se mide el número de mensajes, no solo el resultado.
+  await openRowMenu("Etiquetas", "solo-local");
+  await sleep(200);
+  await clickMenuItem("Borrar…");
+  await sleep(800);
+  const msgsNoRemote = await msgs();
+  check("una sola confirmación (sin preguntar por el remoto)", msgsNoRemote.length === 1, JSON.stringify(msgsNoRemote));
+  check("sin error", (await lastError()) === null);
+  const tagsAfterDelete = await ev(`(() => {
+    const label = Array.from(document.querySelectorAll('.branch-group-label')).find((e) => e.textContent === 'Etiquetas');
+    return label ? Array.from(label.parentElement.querySelectorAll('.branch-name')).map((e) => e.textContent) : []; })()`);
+  check("la lista se refrescó (el tag ya no aparece)", !tagsAfterDelete.includes("solo-local"), JSON.stringify(tagsAfterDelete));
+  await reloadWith([rootA], rootA);
+
   // ===== 6. Pull/push por rama no activa =====
-  console.log("\n# 5. Pull/push por rama (feat, no activa)");
+  console.log("\n# 6. Pull/push por rama (feat, no activa)");
   await openRowMenu("Locales", "feat");
   await sleep(200);
   check("Pull deshabilitado sin upstream", await menuItemDisabled("Pull"));
@@ -305,7 +331,7 @@ try {
   // clientX/Y en 0 — se reproduce ese evento tal cual, en vez de depender de
   // que la síntesis de teclado de CDP dispare la activación nativa en
   // WebView2 (frágil). Es justo la condición que mira `openMenu` en App.tsx.
-  console.log("\n# 6. Botón ⋯ por teclado");
+  console.log("\n# 7. Botón ⋯ por teclado");
   await ev(`(() => {
     const label = Array.from(document.querySelectorAll('.branch-group-label')).find((e) => e.textContent === 'Locales');
     const row = Array.from(label.parentElement.querySelectorAll('.branch-item')).find((r) => r.querySelector('.branch-name')?.textContent === 'master');

@@ -2598,3 +2598,47 @@ fn branches_campos_incompletos_es_error() {
     use super::repo::parse_branch_lines_for_test as parse;
     assert!(parse("refs/heads/master\n").is_err());
 }
+
+/// `push_tag`/`delete_remote_tag` en un repo SIN ningún remoto configurado:
+/// error claro de `first_remote`, no un colgado ni un pánico. Es el fallo del
+/// que depende el frontend para decidir si pregunta por el borrado remoto
+/// (`hasRemote` en `doDeleteTag`, App.tsx) — sin remoto, ni se pregunta.
+#[test]
+fn tags_remotos_sin_remoto_configurado_da_error_claro() {
+    use std::path::PathBuf;
+    use std::process::Command;
+
+    let dir: PathBuf = std::env::temp_dir().join(format!(
+        "gitpad-notag-remote-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let _guard = scopeguard(&dir);
+    let git = |args: &[&str]| {
+        Command::new("git")
+            .args(args)
+            .current_dir(&dir)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    };
+    if !git(&["init", "-q", "-b", "master"]) {
+        eprintln!("git no disponible, se salta el test");
+        return;
+    }
+    git(&["config", "user.email", "t@t"]);
+    git(&["config", "user.name", "t"]);
+    git(&["commit", "-q", "--allow-empty", "-m", "x"]);
+    super::repo::create_tag(&dir, "v1", None).expect("tag local");
+
+    let e1 = super::repo::push_tag(&dir, "v1").expect_err("sin remoto, push_tag debe fallar");
+    assert!(e1.to_string().contains("remoto"), "{e1}");
+    let e2 = super::repo::delete_remote_tag(&dir, "v1").expect_err("sin remoto, delete_remote_tag debe fallar");
+    assert!(e2.to_string().contains("remoto"), "{e2}");
+    // El tag local no se ve afectado por ninguno de los dos fallos.
+    assert!(super::repo::list_tags(&dir).unwrap().iter().any(|t| t.name == "v1"));
+}

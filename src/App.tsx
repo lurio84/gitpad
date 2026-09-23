@@ -715,18 +715,28 @@ function App() {
   );
 
   const doDeleteTag = useCallback(
-    (root: string, name: string) => {
+    (root: string, name: string, hasRemote: boolean) => {
       if (!window.confirm(`¿Borrar el tag "${name}"? Solo el local; el remoto no se toca.`)) return;
       // Una vez borrado el local, `list_tags` ya no lo trae y el menú de este
       // tag (con "Borrar del remoto…") deja de ser alcanzable. Se ofrece
-      // aquí mismo, antes de que desaparezca de la lista.
-      const alsoRemote = window.confirm(`¿Borrar "${name}" también del remoto?`);
+      // aquí mismo, antes de que desaparezca de la lista. Sin remoto
+      // configurado no tiene sentido preguntar (fallaría siempre).
+      const alsoRemote = hasRemote && window.confirm(`¿Borrar "${name}" también del remoto?`);
       void refOp(root, async () => {
         await deleteTag(root, name);
-        if (alsoRemote) await deleteRemoteTag(root, name);
+        if (!alsoRemote) return;
+        // El borrado local ya pasó: si el remoto falla, se recarga IGUAL
+        // (para que la lista no se quede con un tag que ya no existe local)
+        // y luego se relanza, para que el error se vea.
+        try {
+          await deleteRemoteTag(root, name);
+        } catch (e) {
+          await reload(root);
+          throw e;
+        }
       });
     },
-    [refOp],
+    [refOp, reload],
   );
 
   // Pull/push de una rama LOCAL que no es la activa (la activa sigue usando
@@ -1054,7 +1064,7 @@ function App() {
       label: "Borrar…",
       danger: true,
       disabled: menuBusy,
-      onSelect: () => doDeleteTag(root, t.name),
+      onSelect: () => doDeleteTag(root, t.name, active?.branches.some((b) => b.is_remote) ?? false),
     },
     {
       label: "Subir al remoto",
@@ -1439,7 +1449,12 @@ function App() {
                                         label: "Borrar tag…",
                                         danger: true,
                                         disabled: menuBusy,
-                                        onSelect: () => doDeleteTag(active.root, r.name),
+                                        onSelect: () =>
+                                          doDeleteTag(
+                                            active.root,
+                                            r.name,
+                                            active.branches.some((b) => b.is_remote),
+                                          ),
                                       },
                                     ])
                                 : undefined
