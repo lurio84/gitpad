@@ -468,7 +468,7 @@ function App() {
           ? `¿Borrar ${que} sin seguir?`
           : `¿Descartar los cambios de ${que}?`) +
         `\n\n${nombres.join("\n")}\n\nNo se puede deshacer.`;
-      if (!window.confirm(msg)) return;
+      if (!(await window.confirm(msg))) return;
       try {
         await discardPaths(root, paths, origPaths, untracked);
         await reload(root);
@@ -482,7 +482,7 @@ function App() {
   const doCommit = useCallback(
     async (root: string, subject: string, body: string, amend: boolean) => {
       if (!subject.trim()) return;
-      if (amend && !window.confirm("¿Reescribir el último commit?")) return;
+      if (amend && !(await window.confirm("¿Reescribir el último commit?"))) return;
       // Sin descripción se manda solo el resumen: nada de líneas en blanco de más.
       const message = body.trim() ? `${subject.trim()}\n\n${body.trim()}` : subject.trim();
       patchTab(root, { committing: true, error: null });
@@ -539,7 +539,7 @@ function App() {
 
   const doOpAbort = useCallback(
     async (root: string) => {
-      if (!window.confirm("¿Abortar y volver al estado de antes de empezar?")) return;
+      if (!(await window.confirm("¿Abortar y volver al estado de antes de empezar?"))) return;
       patchTab(root, { opBusy: true, error: null });
       try {
         await opAbort(root);
@@ -587,7 +587,7 @@ function App() {
 
   const doStashDrop = useCallback(
     async (root: string, index: number) => {
-      if (!window.confirm("¿Borrar este stash? No se puede deshacer.")) return;
+      if (!(await window.confirm("¿Borrar este stash? No se puede deshacer."))) return;
       patchTab(root, { stashBusy: true, error: null });
       try {
         await stashDrop(root, index);
@@ -620,7 +620,7 @@ function App() {
   const doRebase = useCallback(
     async (root: string, onto: string) => {
       if (!onto.trim()) return;
-      if (!window.confirm(`¿Hacer rebase de la rama activa sobre "${onto}"?`)) return;
+      if (!(await window.confirm(`¿Hacer rebase de la rama activa sobre "${onto}"?`))) return;
       patchTab(root, { rebasing: true, error: null });
       try {
         await rebaseOnto(root, onto);
@@ -636,7 +636,7 @@ function App() {
 
   const doMerge = useCallback(
     async (root: string, branch: Branch) => {
-      if (!window.confirm(`¿Hacer merge de "${branch.name}" en la rama activa?`)) return;
+      if (!(await window.confirm(`¿Hacer merge de "${branch.name}" en la rama activa?`))) return;
       patchTab(root, { refBusy: true, error: null });
       try {
         await mergeBranch(root, branchRef(branch));
@@ -669,7 +669,7 @@ function App() {
 
   const doRevert = useCallback(
     async (root: string, c: Commit) => {
-      if (!window.confirm(`¿Crear un commit que deshaga ${c.short_hash} «${c.subject}»?`)) return;
+      if (!(await window.confirm(`¿Crear un commit que deshaga ${c.short_hash} «${c.subject}»?`))) return;
       patchTab(root, { refBusy: true, error: null });
       try {
         await revertCommit(root, c.hash);
@@ -686,7 +686,7 @@ function App() {
 
   /** `lost`: cambios sin guardar que hay AHORA; solo importan con `hard`, que los descarta. */
   const doReset = useCallback(
-    (root: string, c: Commit, mode: ResetMode, branch: string | null, lost: StatusEntry[]) => {
+    async (root: string, c: Commit, mode: ResetMode, branch: string | null, lost: StatusEntry[]) => {
       let msg =
         `¿Mover ${branch ? `la rama "${branch}"` : "HEAD"} a ${c.short_hash} «${c.subject}»?\n\n` +
         "Los commits posteriores dejarán de estar en la rama (siguen en el reflog).";
@@ -701,7 +701,7 @@ function App() {
             : "\n\nNo hay cambios sin guardar que perder.";
         msg += "\n(Los archivos sin seguir no se tocan.)";
       }
-      if (!window.confirm(msg)) return;
+      if (!(await window.confirm(msg))) return;
       void refOp(root, () => resetTo(root, c.hash, mode));
     },
     [refOp],
@@ -728,8 +728,8 @@ function App() {
   );
 
   const doDeleteBranch = useCallback(
-    (root: string, b: Branch) => {
-      if (!window.confirm(`¿Borrar la rama "${b.name}"? Solo la local; el remoto no se toca.`))
+    async (root: string, b: Branch) => {
+      if (!(await window.confirm(`¿Borrar la rama "${b.name}"? Solo la local; el remoto no se toca.`)))
         return;
       void refOp(root, async () => {
         try {
@@ -739,9 +739,9 @@ function App() {
           const forzar =
             isGitError(e) &&
             e.kind === "not_merged" &&
-            window.confirm(
+            (await window.confirm(
               `"${b.name}" tiene commits que no están en la rama actual y se perderían.\n\n¿Borrarla igualmente?`,
-            );
+            ));
           if (!forzar) throw e;
           await deleteBranch(root, b.name, true);
         }
@@ -761,13 +761,13 @@ function App() {
   );
 
   const doDeleteTag = useCallback(
-    (root: string, name: string, hasRemote: boolean) => {
-      if (!window.confirm(`¿Borrar el tag "${name}"? Solo el local; el remoto no se toca.`)) return;
+    async (root: string, name: string, hasRemote: boolean) => {
+      if (!(await window.confirm(`¿Borrar el tag "${name}"? Solo el local; el remoto no se toca.`))) return;
       // Una vez borrado el local, `list_tags` ya no lo trae y el menú de este
       // tag (con "Borrar del remoto…") deja de ser alcanzable. Se ofrece
       // aquí mismo, antes de que desaparezca de la lista. Sin remoto
       // configurado no tiene sentido preguntar (fallaría siempre).
-      const alsoRemote = hasRemote && window.confirm(`¿Borrar "${name}" también del remoto?`);
+      const alsoRemote = hasRemote && (await window.confirm(`¿Borrar "${name}" también del remoto?`));
       void refOp(root, async () => {
         await deleteTag(root, name);
         if (!alsoRemote) return;
@@ -816,8 +816,8 @@ function App() {
   );
 
   const doDeleteRemoteTag = useCallback(
-    (root: string, name: string) => {
-      if (!window.confirm(`¿Borrar el tag "${name}" del remoto? El local no se toca.`)) return;
+    async (root: string, name: string) => {
+      if (!(await window.confirm(`¿Borrar el tag "${name}" del remoto? El local no se toca.`))) return;
       void refOp(root, () => deleteRemoteTag(root, name));
     },
     [refOp],
