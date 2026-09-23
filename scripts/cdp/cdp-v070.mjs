@@ -264,8 +264,14 @@ try {
   check("el orden se persiste", (await ev("localStorage.getItem('gitpad:tabs')")) === JSON.stringify([rootB, rootA]));
 
   // ===== 3. Paneles redimensionables =====
+  // v0.9.0: sin commit seleccionado la columna de diff se colapsa y el
+  // mínimo de las columnas centrales baja de 480 a 220 (ver `usePanels.ts`).
+  // Estas comprobaciones asumen el diff visible (480), que es también el
+  // caso real más común al redimensionar — se selecciona un commit primero.
   console.log("\n# 3. Paneles redimensionables");
   await reloadWith([rootA], rootA, { "gitpad:panels": null });
+  await ev("document.querySelector('.commit:not(.wip)')?.click(); 1");
+  await sleep(300);
   const w0 = (await rect(".branches")).w;
   check("ancho inicial del panel izquierdo = 180", Math.round(w0) === 180, `${w0}`);
   const h = await rect(".resizer-left");
@@ -273,6 +279,8 @@ try {
   const w1 = (await rect(".branches")).w;
   check("arrastrar el asa izquierdo +100 px ensancha el panel", Math.abs(w1 - 280) <= 2, `${w1}`);
   await reloadWith([rootA], rootA, {});
+  await ev("document.querySelector('.commit:not(.wip)')?.click(); 1");
+  await sleep(300);
   check("el ancho se persiste tras recargar", Math.abs((await rect(".branches")).w - 280) <= 2);
   const hl = await rect(".resizer-left");
   await mouseDrag({ x: hl.x + hl.w / 2, y: hl.y + 200 }, { x: hl.x + hl.w / 2 + 900, y: hl.y + 200 });
@@ -298,6 +306,8 @@ try {
   await send("Emulation.setDeviceMetricsOverride", { width: 900, height: 700, deviceScaleFactor: 1, mobile: false });
   await send("Page.reload", { ignoreCache: true });
   await sleep(1200);
+  await ev("document.querySelector('.commit:not(.wip)')?.click(); 1");
+  await sleep(300);
   const diffW = (await rect(".diffpane")).w;
   const commitsW = (await rect(".commits")).w;
   check("a 900 px con anchos guardados de 360/560 el diff conserva ≥ 260 px", diffW >= 259, `diff=${diffW}`);

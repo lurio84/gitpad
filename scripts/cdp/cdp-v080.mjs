@@ -349,8 +349,12 @@ try {
   // 2e. Renombrar una rama desde su menú.
   await rightClick(branchRow("feature/x"));
   await waitFor("document.querySelector('.ctx-menu') ? 1 : null");
-  check("el menú de una rama local: Checkout, Merge, Renombrar, Borrar",
-    JSON.stringify(await menuItems()) === JSON.stringify(["Checkout", "Merge en la rama actual", "Renombrar…", "Borrar…"]), (await menuItems()).join("|"));
+  // v0.9.0 añade Pull/Push al menú de rama (tanda D de la ronda «Review 0.8.0»).
+  // "feature/x" no tiene upstream (repo N es puramente local): Pull sale
+  // deshabilitado; Push no depende del upstream (usa push_new_branch), así
+  // que sale habilitado aunque fallaría al clicarlo sin remoto configurado.
+  check("el menú de una rama local: Checkout, Merge, Pull(off), Push, Renombrar, Borrar",
+    JSON.stringify(await menuItems()) === JSON.stringify(["Checkout", "Merge en la rama actual", "Pull [off]", "Push", "Renombrar…", "Borrar…"]), (await menuItems()).join("|"));
   await answer("feature/renombrada");
   await clickBtn(".ctx-menu", "Renombrar…");
   check("renombrar: git tiene el nombre nuevo y ya no el viejo",

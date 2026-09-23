@@ -66,6 +66,15 @@ de depuración de WebView2.
      error de consola. Restaura `localStorage` (vía `_ls.mjs`). Acepta dev y producción.
      Los `window.confirm`/`prompt` se sobrescriben en la página; el `prompt` nativo se
      comprobó aparte con un diálogo real de WebView2.
+   - `node cdp-v090.mjs` — v0.9.0 completa, **sin argumentos** (crea un remoto `bare`
+     + dos clones y los borra): About, Ctrl+Enter, Ctrl+clic/reclic para deseleccionar,
+     centro colapsado/expandido, lista de Etiquetas con menú (push/borrado remoto de
+     tag, tag y rama homónimos), pull/push de una rama que no es la activa, botón "⋯"
+     visible (también activado con `clientX/Y` en 0, como el teclado), y el hueco
+     histórico del proyecto — fetch/pull/push, stash y cherry-pick — que nunca tuvo
+     un script E2E persistido. Sale con código 1 si falla algo o hay error de consola.
+     Restaura `localStorage`. `window.alert` también se sobrescribe (bloquearía
+     `Runtime.evaluate`), con el mismo patrón de cola que `confirm`/`prompt`.
    - Aceptan como target tanto `localhost:1420` (dev) como `tauri.localhost`
      (binario de producción), sin tocar nada: `cdp-split-diff`, `cdp-graph`,
      `cdp-row-height`, `cdp-log-view` y `cdp-shots`. Los demás (`cdp-e2e`,
