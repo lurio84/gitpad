@@ -71,6 +71,13 @@ export interface Branch {
   is_remote: boolean;
 }
 
+export interface Tag {
+  /** Nombre corto, sin `refs/tags/`. */
+  name: string;
+  /** Commit al que apunta (ya resuelto: tag anotado o ligero). */
+  target: string;
+}
+
 /** Rebase/cherry-pick/merge parado a medias por un conflicto. */
 export interface OpState {
   kind: "rebase" | "cherry_pick" | "merge" | "revert";

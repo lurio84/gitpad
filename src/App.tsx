@@ -20,6 +20,7 @@ import {
   getOpState,
   getStashes,
   getStatus,
+  getTags,
   getTreeFiles,
   opAbort,
   opContinue,
@@ -63,7 +64,7 @@ import {
   type Selection,
   type Tab,
 } from "./tabModel";
-import type { Branch, Commit, CommitFile, StatusEntry } from "./types";
+import type { Branch, Commit, CommitFile, StatusEntry, Tag } from "./types";
 import "./App.css";
 
 function App() {
@@ -123,10 +124,11 @@ function App() {
       );
       try {
         const info = await openRepo(root);
-        const [log, st, branches, opState, stashes, defaultBase] = await Promise.all([
+        const [log, st, branches, tags, opState, stashes, defaultBase] = await Promise.all([
           getLog(info.root, 0, filter.limit, filter.mode, filter.query, filter.branch, filter.file),
           getStatus(info.root),
           getBranches(info.root),
+          getTags(info.root),
           getOpState(info.root),
           getStashes(info.root),
           getDefaultBase(info.root),
@@ -143,6 +145,7 @@ function App() {
                   filterFile: filter.file,
                   logLimit: filter.limit,
                   branches,
+                  tags,
                   status: st,
                   opState,
                   stashes,
@@ -367,7 +370,7 @@ function App() {
     const gen = gens.current.get(root) ?? 0;
     try {
       const filter = filters.current.get(root) ?? DEFAULT_VIEW;
-      const [info, opState, status, branches, stashes, log] = await Promise.all([
+      const [info, opState, status, branches, tags, stashes, log] = await Promise.all([
         // Sin esto `head_hash` queda obsoleto tras un commit hecho fuera de
         // gitpad: el nodo //WIP se dibujaría enganchado al HEAD viejo (se
         // saltaría el commit más nuevo) justo en el camino que existe para
@@ -376,13 +379,14 @@ function App() {
         getOpState(root),
         getStatus(root),
         getBranches(root),
+        getTags(root),
         getStashes(root),
         // `filter.limit`, no LOG_PAGE: si Bernardo ya cargó más páginas, un
         // alt-tab no debe encogerle la lista.
         getLog(root, 0, filter.limit, filter.mode, filter.query, filter.branch, filter.file),
       ]);
       if (gens.current.get(root) !== gen) return;
-      patchTab(root, { info, opState, status, branches, stashes, commits: log });
+      patchTab(root, { info, opState, status, branches, tags, stashes, commits: log });
     } catch {
       // Si esto también falla, se queda el mensaje de error genérico y ya.
     }
@@ -952,6 +956,29 @@ function App() {
           },
         ]),
   ];
+  // Solo salta al commit si está en la lista ya cargada (sin filtro/paginación
+  // de por medio); si no, el ítem del menú sale deshabilitado.
+  const goToCommit = (root: string, hash: string) => {
+    const c = active?.commits.find((x) => x.hash === hash);
+    if (!c) return;
+    void loadDiff(root, { t: "commit", hash: c.hash, isMerge: c.parents.length > 1 });
+    void loadCommitFiles(root, c.hash);
+  };
+  const tagItems = (root: string, t: Tag): MenuItem[] => [
+    {
+      label: "Ir al commit",
+      disabled: !active?.commits.some((c) => c.hash === t.target),
+      title: !active?.commits.some((c) => c.hash === t.target)
+        ? "No está en la lista de commits cargada"
+        : undefined,
+      onSelect: () => goToCommit(root, t.target),
+    },
+    {
+      label: "Borrar…",
+      danger: true,
+      onSelect: () => doDeleteTag(root, t.name),
+    },
+  ];
   const commitItems = (root: string, c: Commit): MenuItem[] => {
     const esMerge = c.parents.length > 1;
     // Lo que `reset --hard` descartaría ahora: cambios en archivos seguidos (los
@@ -1156,6 +1183,7 @@ function App() {
             menuBusy={menuBusy}
             openMenu={openMenu}
             branchItems={branchItems}
+            tagItems={tagItems}
             doCheckout={doCheckout}
             doCreateBranch={doCreateBranch}
             doMerge={doMerge}

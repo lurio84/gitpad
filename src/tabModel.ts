@@ -8,6 +8,7 @@ import type {
   RepoInfo,
   Stash,
   Status,
+  Tag,
 } from "./types";
 
 export const LOG_PAGE = 200;
@@ -64,6 +65,7 @@ export interface Tab {
   info: RepoInfo | null;
   commits: Commit[];
   branches: Branch[];
+  tags: Tag[];
   status: Status | null;
   sel: Selection | null;
   diff: string | null;
@@ -122,6 +124,7 @@ export function emptyTab(root: string): Tab {
     info: null,
     commits: [],
     branches: [],
+    tags: [],
     status: null,
     sel: null,
     diff: null,

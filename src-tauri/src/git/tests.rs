@@ -1629,6 +1629,20 @@ fn ramas_y_tags_crear_renombrar_borrar() {
     // El chip sale como tag en el log real.
     let log = super::repo::log(&dir, 0, 5, &super::repo::LogFilter::None, None).unwrap();
     assert!(log[0].refs.iter().any(|c| c.name == "v1" && c.kind == "tag"));
+
+    // --- list_tags: ligero (v1, v0) + anotado (vann) ---
+    let head = git_out(&["rev-parse", "HEAD"]);
+    git(&["tag", "-a", "vann", "-m", "anotado"]);
+    let tags = super::repo::list_tags(&dir).expect("list_tags");
+    let names: Vec<&str> = tags.iter().map(|t| t.name.as_str()).collect();
+    // Orden alfabético (--sort=refname), no de creación.
+    assert_eq!(names, vec!["v0", "v1", "vann"]);
+    assert_eq!(tags.iter().find(|t| t.name == "v0").unwrap().target, c1);
+    assert_eq!(tags.iter().find(|t| t.name == "v1").unwrap().target, head);
+    // El anotado apunta al commit (resuelto), no al objeto tag intermedio.
+    assert_eq!(tags.iter().find(|t| t.name == "vann").unwrap().target, head);
+    git(&["tag", "-d", "vann"]);
+
     super::repo::delete_tag(&dir, "v1").expect("borrar tag");
     assert_eq!(git_out(&["tag", "--list", "v1"]), "");
     assert!(super::repo::delete_tag(&dir, "v1").is_err(), "ya no existe");

@@ -5,7 +5,7 @@ use std::path::Path;
 
 use git::error::GitResult;
 use git::repo::{
-    Branch, Commit, CommitFile, FileContent, LogFilter, OpState, RepoInfo, Stash, Status,
+    Branch, Commit, CommitFile, FileContent, LogFilter, OpState, RepoInfo, Stash, Status, Tag,
     TreeFiles,
 };
 
@@ -150,6 +150,11 @@ fn delete_tag(path: String, name: String) -> GitResult<()> {
 }
 
 #[tauri::command(async)]
+fn get_tags(path: String) -> GitResult<Vec<Tag>> {
+    git::repo::list_tags(Path::new(&path))
+}
+
+#[tauri::command(async)]
 fn get_default_base(path: String) -> GitResult<Option<String>> {
     git::repo::default_base(Path::new(&path))
 }
@@ -262,6 +267,7 @@ pub fn run() {
             delete_branch,
             create_tag,
             delete_tag,
+            get_tags,
             get_default_base
         ])
         .run(tauri::generate_context!())

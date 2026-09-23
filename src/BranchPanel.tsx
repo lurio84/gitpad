@@ -2,15 +2,17 @@ import { focusable } from "./a11y";
 import type { MenuItem } from "./ContextMenu";
 import { branchRef, busyClass } from "./format";
 import type { Tab } from "./tabModel";
-import type { Branch } from "./types";
+import type { Branch, Tag } from "./types";
 
-/** Panel izquierdo: ramas locales/remotas, filtro por rama y caja de Rebase / Merge.
- * El estado y las operaciones viven en `App`; aquí solo se pinta. */
+/** Panel izquierdo: ramas locales/remotas, etiquetas, filtro por rama y caja
+ * de Rebase / Merge. El estado y las operaciones viven en `App`; aquí solo se
+ * pinta. */
 interface Props {
   active: Tab;
   menuBusy: boolean;
   openMenu: (ev: React.MouseEvent, heading: string, items: MenuItem[]) => void;
   branchItems: (root: string, b: Branch, blocked: boolean) => MenuItem[];
+  tagItems: (root: string, t: Tag) => MenuItem[];
   doCheckout: (root: string, name: string) => Promise<void>;
   doCreateBranch: (root: string, at?: string) => void;
   doMerge: (root: string, branch: Branch) => Promise<void>;
@@ -19,7 +21,7 @@ interface Props {
   patchTab: (root: string, patch: Partial<Tab>) => void;
 }
 
-export function BranchPanel({ active, menuBusy, openMenu, branchItems, doCheckout, doCreateBranch, doMerge, doRebase, applyBranch, patchTab }: Props) {
+export function BranchPanel({ active, menuBusy, openMenu, branchItems, tagItems, doCheckout, doCreateBranch, doMerge, doRebase, applyBranch, patchTab }: Props) {
   return (
     <aside className="branches">
       <div className="branches-head">
@@ -102,6 +104,25 @@ export function BranchPanel({ active, menuBusy, openMenu, branchItems, doCheckou
           </div>
         );
       })}
+
+      {active.tags.length > 0 && (
+        <div>
+          <div className="branch-group-label">Etiquetas</div>
+          <ul>
+            {active.tags.map((t) => (
+              <li
+                key={t.name}
+                {...focusable}
+                className="branch-item"
+                title={t.name}
+                onContextMenu={(ev) => openMenu(ev, t.name, tagItems(active.root, t))}
+              >
+                <span className="branch-name">{t.name}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="rebase-box">
         <div className="branch-group-label">Rebase / Merge</div>

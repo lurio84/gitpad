@@ -10,6 +10,7 @@ import type {
   RepoInfo,
   Stash,
   Status,
+  Tag,
 } from "./types";
 
 export type LogFilterMode = "none" | "message" | "content";
@@ -216,6 +217,10 @@ export function createTag(path: string, name: string, at?: string): Promise<void
 
 export function deleteTag(path: string, name: string): Promise<void> {
   return invoke("delete_tag", { path, name });
+}
+
+export function getTags(path: string): Promise<Tag[]> {
+  return invoke("get_tags", { path });
 }
 
 export function getDefaultBase(path: string): Promise<string | null> {

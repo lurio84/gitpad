@@ -93,6 +93,16 @@ pub struct FileContent {
 pub const MAX_FILE_BYTES: usize = 2 * 1024 * 1024;
 
 #[derive(Debug, Serialize)]
+pub struct Tag {
+    /// Nombre corto, sin `refs/tags/`.
+    pub name: String,
+    /// Commit al que apunta. Para un tag anotado es el objeto tag, no un
+    /// commit: se resuelve con `%(*objectname)` (vacío si es ligero) y se
+    /// cae a `%(objectname)` — ver `parse_tag_lines`.
+    pub target: String,
+}
+
+#[derive(Debug, Serialize)]
 pub struct Branch {
     /// Nombre a mostrar: `"master"` para una rama local, `"origin/master"`
     /// para una remota.
@@ -1236,6 +1246,36 @@ pub fn delete_tag(repo: &Path, name: &str) -> GitResult<()> {
         return Err(GitError::Parse(format!("no existe el tag «{name}»")));
     }
     run_git(repo, &["tag", "-d", "--end-of-options", name]).map(|_| ())
+}
+
+/// Todos los tags locales, orden alfabético. `%(refname:short)` es seguro
+/// aquí (a diferencia de `branches()`): esto solo lista, no se le pasa a
+/// `checkout`, así que no hay ambigüedad con una rama homónima.
+pub fn list_tags(repo: &Path) -> GitResult<Vec<Tag>> {
+    let fmt = format!("%(refname:short){FS}%(objectname){FS}%(*objectname)");
+    let out = run_git(
+        repo,
+        &["for-each-ref", "--sort=refname", &format!("--format={fmt}"), "refs/tags"],
+    )?;
+    let mut tags = Vec::new();
+    for line in out.lines() {
+        let line = line.trim_end_matches('\r');
+        if line.is_empty() {
+            continue;
+        }
+        let f: Vec<&str> = line.split(FS).collect();
+        if f.len() != 3 {
+            return Err(GitError::Parse(format!(
+                "esperados 3 campos por tag, encontrados {}",
+                f.len()
+            )));
+        }
+        // Anotado: `*objectname` es el commit señalado (objectname es el tag
+        // object). Ligero: `*objectname` sale vacío, objectname YA es el commit.
+        let target = if !f[2].is_empty() { f[2].to_string() } else { f[1].to_string() };
+        tags.push(Tag { name: f[0].to_string(), target });
+    }
+    Ok(tags)
 }
 
 /// Rama por defecto del remoto (`refs/remotes/origin/HEAD`), si existe. Solo
