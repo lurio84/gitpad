@@ -969,7 +969,10 @@ pub fn push(repo: &Path) -> GitResult<()> {
         // git ya no los lee como opciones.
         args.push("--end-of-options".to_string());
         args.push(remote);
-        args.push(branch);
+        // Refspec cualificado, no el nombre a secas: un tag homónimo de la
+        // rama («src refspec v1 matches more than one») rompe `push -u
+        // origin v1` — comprobado en vivo.
+        args.push(format!("refs/heads/{branch}:refs/heads/{branch}"));
     }
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     run_git(repo, &args).map(|_| ())
@@ -1019,7 +1022,9 @@ pub fn push_new_branch(repo: &Path, branch: &str) -> GitResult<()> {
     args.push("-u".to_string());
     args.push("--end-of-options".to_string());
     args.push(remote);
-    args.push(branch.to_string());
+    // Refspec cualificado: un tag homónimo de la rama rompe un nombre a
+    // secas («src refspec matches more than one») — mismo bug que `push()`.
+    args.push(format!("refs/heads/{branch}:refs/heads/{branch}"));
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     run_git(repo, &args).map(|_| ())
 }

@@ -717,7 +717,14 @@ function App() {
   const doDeleteTag = useCallback(
     (root: string, name: string) => {
       if (!window.confirm(`¿Borrar el tag "${name}"? Solo el local; el remoto no se toca.`)) return;
-      void refOp(root, () => deleteTag(root, name));
+      // Una vez borrado el local, `list_tags` ya no lo trae y el menú de este
+      // tag (con "Borrar del remoto…") deja de ser alcanzable. Se ofrece
+      // aquí mismo, antes de que desaparezca de la lista.
+      const alsoRemote = window.confirm(`¿Borrar "${name}" también del remoto?`);
+      void refOp(root, async () => {
+        await deleteTag(root, name);
+        if (alsoRemote) await deleteRemoteTag(root, name);
+      });
     },
     [refOp],
   );
@@ -982,7 +989,11 @@ function App() {
   };
   // Con una operación a medias (conflicto) o en marcha solo quedan vivos
   // Continuar/Abortar del banner: el resto de acciones del menú se apagan.
-  const menuBusy = !!active && (active.opState !== null || active.refBusy || active.rebasing);
+  // `remoting` cuenta: sin esto, un fetch/pull/push de la topbar (rama
+  // activa) y una operación de red por rama/tag del menú podían correr a la
+  // vez sobre el mismo repo.
+  const menuBusy =
+    !!active && (active.opState !== null || active.refBusy || active.rebasing || active.remoting !== null);
   const branchItems = (root: string, b: Branch, blocked: boolean): MenuItem[] => [
     {
       label: "Checkout",
@@ -1145,21 +1156,21 @@ function App() {
             <button
               className={busyClass(active.remoting === "fetch")}
               onClick={() => void doRemote(active.root, "fetch")}
-              disabled={active.remoting !== null}
+              disabled={active.remoting !== null || active.refBusy}
             >
               Fetch
             </button>
             <button
               className={busyClass(active.remoting === "pull")}
               onClick={() => void doRemote(active.root, "pull")}
-              disabled={active.remoting !== null}
+              disabled={active.remoting !== null || active.refBusy}
             >
               Pull
             </button>
             <button
               className={busyClass(active.remoting === "push")}
               onClick={() => void doRemote(active.root, "push")}
-              disabled={active.remoting !== null}
+              disabled={active.remoting !== null || active.refBusy}
             >
               Push
             </button>

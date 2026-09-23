@@ -1310,10 +1310,37 @@ fn fetch_push_branch_no_activa_y_tags_remotos() {
     );
     git(&clone_a, &["checkout", "-q", "master"]);
 
+    // --- fetch_branch con upstream de OTRO nombre ("tigre" trackea "oso") ---
+    git(&clone_a, &["branch", "tigre"]);
+    git(&clone_a, &["push", "-q", "origin", "tigre:oso"]);
+    git(&clone_a, &["branch", "tigre", "-u", "origin/oso"]);
+    let tigre = super::repo::branches(&clone_a)
+        .unwrap()
+        .into_iter()
+        .find(|b| b.name == "tigre")
+        .expect("tigre debe listarse");
+    assert_eq!(tigre.upstream_ref.as_deref(), Some("refs/heads/oso"));
+    git(&clone_b, &["fetch", "-q", "origin"]);
+    git(&clone_b, &["checkout", "-q", "-B", "oso", "origin/oso"]);
+    std::fs::write(clone_b.join("k.txt"), "0\n").unwrap();
+    git(&clone_b, &["add", "-A"]);
+    git(&clone_b, &["commit", "-q", "-m", "de b en oso"]);
+    git(&clone_b, &["push", "-q", "origin", "oso"]);
+    super::repo::fetch_branch(&clone_a, &tigre.name, "origin", "refs/heads/oso")
+        .expect("fetch_branch con upstream de otro nombre");
+    assert_eq!(
+        git(&clone_a, &["rev-parse", "tigre"]).1.trim(),
+        git(&clone_b, &["rev-parse", "oso"]).1.trim(),
+        "tigre debe traer lo que hay en origin/oso, no en una supuesta origin/tigre"
+    );
+
     // --- tags remotos: tag y rama "v1" homónimos ---
+    // El tag se crea ANTES del push de la rama a propósito: con un nombre a
+    // secas, `push -u origin v1` da "src refspec v1 matches more than one"
+    // en cuanto existen los dos — hace falta el refspec cualificado.
     git(&clone_a, &["branch", "v1"]);
-    super::repo::push_new_branch(&clone_a, "v1").expect("push de la rama v1");
     super::repo::create_tag(&clone_a, "v1", None).expect("tag local v1");
+    super::repo::push_new_branch(&clone_a, "v1").expect("push de la rama v1 pese al tag homónimo");
     super::repo::push_tag(&clone_a, "v1").expect("push del tag v1");
     assert!(remote_refs().contains("refs/tags/v1"), "el tag debe llegar al remoto");
     assert!(remote_refs().contains("refs/heads/v1"), "la rama debe seguir en el remoto");
