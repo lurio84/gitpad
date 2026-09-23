@@ -19,9 +19,11 @@ export const DEFAULTS: Widths = { left: 180, right: 280 };
 const MIN: Widths = { left: 140, right: 220 };
 const MAX: Widths = { left: 360, right: 560 };
 /** Lo que deben conservar juntas las dos columnas centrales: lista de commits
- * (220, su `minmax`) + diff (260). Con `minWidth` 900 de la ventana, los
- * laterales mínimos (140 + 220) y este suelo suman exactamente 900. */
-const CENTER_MIN = 220 + 260;
+ * (220, su `minmax`) + diff (260, solo si no está colapsado). Con `minWidth`
+ * 900 de la ventana, los laterales mínimos (140 + 220) y este suelo suman
+ * exactamente 900 cuando el diff está visible. */
+const CENTER_MIN_DIFF = 220 + 260;
+const CENTER_MIN_COLLAPSED = 220;
 const KEY_STEP = 16;
 
 function clampOne(v: number, side: Side): number {
@@ -30,11 +32,18 @@ function clampOne(v: number, side: Side): number {
 
 /** Ancho efectivo de cada panel para una ventana de `total` px. `drag` es el
  * panel que se está arrastrando: si no caben los dos, cede ESE primero (se topa
- * contra el hueco que queda) y el otro no se mueve solo. */
-export function clampPanels(w: Widths, total: number, drag: Side | null): Widths {
+ * contra el hueco que queda) y el otro no se mueve solo. `centerMin` es el
+ * mínimo que deben dejar libre las dos columnas centrales — menor cuando la
+ * columna de diff está colapsada (ver `CENTER_MIN_COLLAPSED`). */
+export function clampPanels(
+  w: Widths,
+  total: number,
+  drag: Side | null,
+  centerMin: number = CENTER_MIN_DIFF,
+): Widths {
   let left = clampOne(w.left, "left");
   let right = clampOne(w.right, "right");
-  let overflow = left + right - (total - CENTER_MIN);
+  let overflow = left + right - (total - centerMin);
   if (overflow > 0) {
     // Sin arrastre (ventana que se achica, ancho guardado en otra pantalla)
     // cede primero el derecho, que tiene más recorrido. Siempre hasta su mínimo.
@@ -73,11 +82,12 @@ function save(w: Widths): void {
   }
 }
 
-export function usePanels() {
+export function usePanels(diffCollapsed = false) {
   const [pref, setPref] = useState<Widths>(load);
   const [total, setTotal] = useState(() => window.innerWidth);
   const bodyRef = useRef<HTMLDivElement>(null);
   const drag = useRef<{ side: Side; pref: Widths } | null>(null);
+  const centerMin = diffCollapsed ? CENTER_MIN_COLLAPSED : CENTER_MIN_DIFF;
 
   useEffect(() => {
     const onResize = () => setTotal(window.innerWidth);
@@ -85,7 +95,7 @@ export function usePanels() {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  const eff = clampPanels(pref, total, null);
+  const eff = clampPanels(pref, total, null, centerMin);
 
   /** Escribe las variables CSS directamente en el DOM. Durante el arrastre evita
    * re-renderizar `App` (1600 líneas) en cada `pointermove`. */
@@ -118,7 +128,7 @@ export function usePanels() {
     if (!d) return;
     const next = { ...d.pref, [d.side]: widthFromPointer(d.side, e.clientX) };
     d.pref = next;
-    paint(clampPanels(next, window.innerWidth, d.side));
+    paint(clampPanels(next, window.innerWidth, d.side, centerMin));
   };
 
   const endDrag = (e: PointerEvent<HTMLDivElement>) => {
@@ -130,7 +140,7 @@ export function usePanels() {
       e.currentTarget.releasePointerCapture(e.pointerId);
     // Lo que se guarda es lo que se VE (ya clampado), no el puntero crudo:
     // arrastrar mucho más allá del máximo no debe dejar un "ancho fantasma".
-    const shown = clampPanels(d.pref, window.innerWidth, d.side);
+    const shown = clampPanels(d.pref, window.innerWidth, d.side, centerMin);
     setPref(shown);
     save(shown);
   };
@@ -150,6 +160,7 @@ export function usePanels() {
       { ...eff, [side]: eff[side] + dir * KEY_STEP },
       window.innerWidth,
       side,
+      centerMin,
     );
     setPref(shown);
     save(shown);

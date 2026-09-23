@@ -69,8 +69,13 @@ import "./App.css";
 function App() {
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [filesView, setFilesView] = useFilesView();
-  const panels = usePanels();
   const [activeRoot, setActiveRoot] = useState<string | null>(null);
+  // Sin nada seleccionado (ni commit ni archivo de "Cambios") la columna de
+  // diff no tiene qué mostrar: se colapsa y la lista de commits ocupa su
+  // sitio. Se mira `tabs`/`activeRoot` directamente (no la `active` de más
+  // abajo) porque usePanels necesita esto antes en el render.
+  const diffCollapsed = (tabs.find((t) => t.root === activeRoot)?.sel ?? null) === null;
+  const panels = usePanels(diffCollapsed);
   // Trazado del grafo (momento firma): solo tras una acción del usuario (abrir
   // un repo, cambiar de pestaña) y en el arranque — nunca en un refresco.
   // `introPending` recuerda que toca; `introOn` es la clase que dura lo que la
@@ -1139,7 +1144,11 @@ function App() {
       {active?.error && !active.opState && <div className="error">{active.error}</div>}
 
       {active && (
-        <div className="body" ref={panels.bodyRef} style={panels.style}>
+        <div
+          className={`body${diffCollapsed ? " diff-collapsed" : ""}`}
+          ref={panels.bodyRef}
+          style={panels.style}
+        >
           <div {...panels.handleProps("left")} />
           <div {...panels.handleProps("right")} />
           <BranchPanel

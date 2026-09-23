@@ -429,6 +429,17 @@ button.busy::after {
   position: relative;
 }
 
+/* Sin commit ni archivo seleccionado, la columna de diff no tiene qué
+ * mostrar: se colapsa a 0 y la lista de commits ocupa el espacio que deja
+ * (ver `diffCollapsed` en App.tsx y `CENTER_MIN_COLLAPSED` en usePanels.ts). */
+.body.diff-collapsed {
+  grid-template-columns: var(--w-left) minmax(220px, 1fr) 0 var(--w-right);
+}
+
+.body.diff-collapsed .diffpane {
+  overflow: hidden;
+}
+
 /* Asas para redimensionar: fuera del flujo del grid, encima del borde entre
    paneles. La zona de agarre (8 px) es más ancha que la línea que se ve. */
 .resizer {
