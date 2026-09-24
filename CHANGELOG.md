@@ -4,6 +4,16 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-09-24
+
+### Fixed
+
+- **Botón "Acerca de gitpad" (ⓘ) con el icono dentado**: el carácter Unicode
+  "ⓘ" salía con bordes en escalera a este tamaño (visto con zoom sobre una
+  captura real, no solo a ojo). Sustituido por un SVG inline de 2 círculos +
+  una línea — se renderiza siempre con antialiasing, sin depender de qué
+  fuente dibuje ese glifo.
+
 ## [0.9.1] - 2026-09-24
 
 Revisión de iconos pedida por Lucas: instalador, desinstalador y ventana.

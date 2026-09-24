@@ -233,9 +233,10 @@ button.busy::after {
 
 .about-btn {
   margin-left: auto;
-  font-size: 15px;
-  line-height: 1;
-  padding: 4px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 9px;
 }
 
 /* Barra de carga indeterminada bajo la topbar: un segmento que cruza de

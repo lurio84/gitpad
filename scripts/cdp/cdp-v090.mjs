@@ -167,6 +167,13 @@ const clickBtn = (scope, text) =>
       .find((x) => x.textContent.trim() === ${JSON.stringify(text)});
     if (!b || b.disabled) return false;
     b.click(); return true; })()`);
+// El botón de About es un SVG sin texto (ver Backlog "icono ⓘ pixelado");
+// se localiza por selector, no por textContent como el resto de clickBtn.
+const clickSel = (selector) =>
+  ev(`(() => {
+    const b = document.querySelector(${JSON.stringify(selector)});
+    if (!b || b.disabled) return false;
+    b.click(); return true; })()`);
 const btnDisabled = (scope, text) =>
   ev(`(() => {
     const b = Array.from(document.querySelectorAll(${JSON.stringify(scope + " button")}))
@@ -196,7 +203,7 @@ try {
   // ===== 1. About =====
   console.log("\n# 1. About");
   const pkgVersion = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url))).version;
-  await clickBtn(".topbar", "ⓘ");
+  await clickSel(".about-btn");
   await sleep(150);
   check("About muestra la versión de package.json", (await msgs()).some((m) => m.includes(pkgVersion)), JSON.stringify(await msgs()));
 

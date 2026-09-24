@@ -5,7 +5,7 @@
 // IPC hacia Rust y el diálogo real de Windows. Ver README §Confirmaciones.
 //   node dialog-drive.mjs <root-repo> seed        — siembra el tab
 //   node dialog-drive.mjs x discard                — clic en 🗑 del primer archivo
-//   node dialog-drive.mjs x about                  — clic en ⓘ
+//   node dialog-drive.mjs x about                  — clic en el botón About (.about-btn)
 //   node dialog-drive.mjs x deletetag <nombre>      — borrar tag desde el panel de Ramas
 const PORT = process.env.CDP_PORT ?? "9222";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -70,7 +70,7 @@ if (cmd === "seed") {
 } else if (cmd === "about") {
   const r = await ev(
     `(() => {
-      const b = Array.from(document.querySelectorAll('button')).find((x) => x.textContent.trim() === 'ⓘ');
+      const b = document.querySelector('.about-btn');
       if (!b) return 'NO_BUTTON';
       b.click();
       return 'CLICKED';

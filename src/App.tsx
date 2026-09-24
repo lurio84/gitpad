@@ -1312,7 +1312,15 @@ function App() {
             showMessage(`gitpad v${__APP_VERSION__}\ngithub.com/lurio84/gitpad`)
           }
         >
-          ⓘ
+          {/* SVG en vez del carácter Unicode "ⓘ": ese glifo salía dentado a
+              este tamaño (visto con zoom sobre una captura real); el SVG se
+              renderiza siempre con antialiasing, sin depender de qué fuente
+              lo dibuje. */}
+          <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
+            <circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" strokeWidth="1.3" />
+            <circle cx="8" cy="4.6" r="0.9" fill="currentColor" />
+            <line x1="8" y1="7.2" x2="8" y2="11.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+          </svg>
         </button>
       </header>
 
