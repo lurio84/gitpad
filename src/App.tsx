@@ -1164,20 +1164,20 @@ function App() {
       {
         label: "Reset soft a este commit…",
         disabled: menuBusy,
-        title: "Mueve la rama aquí; los cambios quedan preparados (staged)",
+        title: "Mueve la rama aquí; los cambios quedan en Staged",
         onSelect: reset("soft"),
       },
       {
         label: "Reset mixed a este commit…",
         disabled: menuBusy,
-        title: "Mueve la rama aquí; los cambios quedan en tu carpeta, sin preparar",
+        title: "Mueve la rama aquí; los cambios quedan en tu carpeta, en Unstaged",
         onSelect: reset("mixed"),
       },
       {
         label: "Reset hard a este commit…",
         danger: true,
         disabled: menuBusy,
-        title: "Mueve la rama aquí y DESCARTA los cambios sin guardar",
+        title: "Mueve la rama aquí y descarta los cambios pendientes de commit",
         onSelect: reset("hard"),
       },
     ];
@@ -1208,7 +1208,7 @@ function App() {
               {basename(active.root)}
             </span>
             <span className="branch">
-              {active.info?.head ?? "HEAD desprendido"}
+              {active.info?.head ?? "HEAD desacoplado"}
             </span>
             {active.status &&
               (active.status.ahead > 0 || active.status.behind > 0) && (

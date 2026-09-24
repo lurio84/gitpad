@@ -10,20 +10,19 @@ Los 7 puntos de «Review 0.8.0» de Bernardo, más un bug crítico encontrado
 al repasarlos y una revisión completa de las traducciones. Verificado
 contra la app real por CDP (`scripts/cdp/cdp-v070/080/090.mjs`, 0 errores
 de consola), `cargo test` (45 tests), `npm run test:unit` y el arnés de
-clic real sobre los diálogos nativos.
+diálogos nativos sobre el instalable.
 
 ### Fixed — crítico
 
-- **Ninguna confirmación de la app bloqueaba nada, desde antes de v0.5.0.**
-  Sin el permiso `dialog:allow-confirm`, `window.confirm` lanzaba una
-  excepción silenciosa en vez de mostrar un diálogo: descartar cambios,
-  reset hard, borrar rama, borrar tag, abortar rebase, merge, revert…
-  pasaban todas de largo como si Bernardo hubiera dicho que sí. Un primer
-  intento de arreglo (permisos + `await`) tampoco funcionó de verdad:
-  `tauri-plugin-dialog` 2.7.3 quitó el comando IPC que `window.confirm`
-  esperaba. Solución real: `src/dialogs.ts`, el único punto de la app que
-  llama al paquete oficial `@tauri-apps/plugin-dialog`. Verificado con
-  clics reales (ratón físico) sobre el diálogo nativo, no solo con mocks.
+- **Las confirmaciones no protegían nada.** El plugin de diálogos sustituye
+  `window.confirm` por una función asíncrona, y el código hacía
+  `if (!window.confirm(…)) return;`. Una promesa cuenta siempre como «sí»,
+  así que descartar cambios, reset hard, borrar rama o tag, abortar,
+  merge, rebase, revert y amend seguían adelante sin preguntar de verdad,
+  y el diálogo ni siquiera llegaba a verse. Ahora todas pasan por
+  `src/dialogs.ts` con el `confirm()` oficial de
+  `@tauri-apps/plugin-dialog`. Verificado pulsando Aceptar y Cancelar en
+  el diálogo real del instalable.
 - **Borrar un tag con remoto preguntaba dos veces y se contradecía**: «solo
   el local» seguido de «¿también el remoto?», y cancelar la segunda no
   deshacía el borrado local que ya había pasado. Ahora es un único diálogo
@@ -50,7 +49,8 @@ clic real sobre los diálogos nativos.
   actual», «sin seguimiento», «HEAD desacoplado» — contrastado contra la
   traducción oficial de git), plurales corregidos («1 cambio»/«N
   cambios», «1 resultado»/«N resultados»), y las 13 frases de
-  confirmación (nunca vistas por nadie hasta este fix) redactadas de cero.
+  confirmación (nunca vistas por nadie hasta este fix) repasadas y
+  corregidas.
 
 ### Requisitos
 

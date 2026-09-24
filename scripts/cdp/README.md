@@ -160,13 +160,18 @@ contrastado contra `git tag --list`/`ls-remote`, no solo contra el texto
 que imprime el script.
 
 **Nota histórica**: un intento anterior con clic de ratón físico
-(`SetCursorPos`/`SendInput`) parecía funcionar en una sesión y fallar en
-otra sin motivo aparente — resultó que el entorno de esta herramienta no
-tiene acceso real al escritorio interactivo (`GetCursorPos` después de
-`SetCursorPos(x,y)` seguía devolviendo el centro de la pantalla sin
-moverse, con `SetCursorPos`/`SendInput` reportando éxito los dos). `BM_CLICK`
-no depende de eso — manda el mensaje directo a la ventana del botón — y es
-el método correcto para este caso, no un segundo intento.
+(`SetCursorPos`/`SendInput`) funcionó de verdad en una pasada contra
+`tauri dev` (el estado de git cambiaba según el botón pulsado, en varias
+comprobaciones distintas) y **dejó de funcionar** en la pasada siguiente
+contra el `.exe` de producción — mismo código, mismo mecanismo, sin
+motivo identificado (`SetCursorPos`/`SendInput` seguían devolviendo éxito,
+pero `GetCursorPos` después se quedaba clavado en el centro de la
+pantalla). No se llegó a diagnosticar la causa exacta — sesión bloqueada,
+un escritorio no interactivo, u otra cosa del entorno de esta herramienta
+son sospechosas, pero sin confirmar. `BM_CLICK` no depende de mover el
+cursor real — manda el mensaje directo a la ventana del botón — y resultó
+fiable en las dos pasadas: es el método a usar, no un segundo intento por
+si el primero falla.
 
 **Gotcha de PowerShell, ya corregido pero anotado por si reaparece en un
 script nuevo**: `$algo = $lista | Where-Object {...}` con **un solo match**

@@ -6,11 +6,12 @@
 # de un array de un solo match, ver más abajo), no un problema de BM_CLICK.
 # Verificado de nuevo, limpio, contra el .exe de release: BM_CLICK cierra el
 # diálogo de forma fiable y el estado de git cambia como se espera para cada
-# botón. Aparte, en el entorno de esta herramienta (Claude Code) el clic
-# físico (SetCursorPos/SendInput) devuelve éxito pero NO mueve el cursor
-# real ni llega al botón — comprobado con GetCursorPos leyendo siempre el
-# centro de la pantalla sin cambiar. BM_CLICK no depende de eso: no mueve
-# nada, solo manda el mensaje directo al control.
+# botón. Aparte: el clic físico (SetCursorPos/SendInput) funcionó de verdad
+# en una pasada contra `tauri dev` y dejó de hacerlo en la siguiente contra
+# el .exe — SetCursorPos/SendInput seguían devolviendo éxito, pero
+# GetCursorPos después se quedaba clavado en el centro de la pantalla, sin
+# causa identificada. BM_CLICK no depende de mover el cursor real — manda
+# el mensaje directo al control — y fue fiable en las dos pasadas.
 #
 # Uso:
 #   & native-dialog-click.ps1 -OwnerPid <pid> -Action find
