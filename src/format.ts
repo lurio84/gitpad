@@ -1,5 +1,5 @@
 import { WIP_HASH } from "./Graph";
-import type { Branch, Commit, GitError } from "./types";
+import type { Branch, Commit, GitError, OpState } from "./types";
 
 /** Ref completa que se le pasa a `get_log` para ver solo una rama. */
 export const branchRef = (b: Branch) => (b.is_remote ? "refs/remotes/" : "refs/heads/") + b.name;
@@ -45,6 +45,21 @@ export function wipCommit(parent: string): Commit {
 
 export function isGitError(e: unknown): e is GitError {
   return typeof e === "object" && e !== null && "kind" in e && "message" in e;
+}
+
+/** Nombre en español de una operación en curso, para meterlo en la
+ * confirmación de «Abortar» (antes era genérica, sin decir cuál). */
+export function opLabel(kind: OpState["kind"]): string {
+  switch (kind) {
+    case "rebase":
+      return "el rebase";
+    case "cherry_pick":
+      return "el cherry-pick";
+    case "merge":
+      return "el merge";
+    case "revert":
+      return "el revert";
+  }
 }
 
 export { friendlyGitError } from "./gitErrors";

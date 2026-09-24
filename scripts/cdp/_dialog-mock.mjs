@@ -12,16 +12,26 @@
 //   window.__msgs   — mensajes mostrados, en orden
 //   window.__ca     — cola de respuestas para confirm (true=Aceptar); vacía
 //                      → auto-acepta
+//   window.__cc     — cola de respuestas para chooseAction (0/1/2 = índice
+//                      del botón yes/no/cancel); vacía → auto-elige "yes"
+//                      (equivalente al Aceptar de antes de existir el
+//                      diálogo de 3 botones, ver doDeleteTag)
 //   window.__pa     — valor que devuelve window.prompt (sin tocar, no pasa
 //                      por el seam: el plugin no lo parchea)
 export async function installDialogMock(ev) {
   await ev(`(() => {
     window.__msgs = [];
     window.__ca = [];
+    window.__cc = [];
     window.__E2E_DIALOG__ = (kind, msg) => {
       window.__msgs.push(msg);
       if (kind === "message") return true;
       return window.__ca.length ? window.__ca.shift() : true;
+    };
+    window.__E2E_CHOICE__ = (msg, labels) => {
+      window.__msgs.push(msg);
+      const idx = window.__cc.length ? window.__cc.shift() : 0;
+      return labels[idx];
     };
     // window.prompt: nativo, no lo toca tauri-plugin-dialog. Se deja el mismo
     // atajo que antes para no bloquear el script con un diálogo real (y,

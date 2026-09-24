@@ -159,6 +159,8 @@ async function reloadWith(tabs, active) {
 const msgs = () => ev("window.__msgs ?? []");
 const setConfirms = (arr) => ev(`(() => { window.__ca = ${JSON.stringify(arr)}; return 1; })()`);
 const setPrompt = (v) => ev(`(() => { window.__pa = ${JSON.stringify(v)}; return 1; })()`);
+/** Cola de elecciones para chooseAction (diálogo de 3 botones): 0=yes, 1=no, 2=cancel. */
+const setChoices = (arr) => ev(`(() => { window.__cc = ${JSON.stringify(arr)}; return 1; })()`);
 const clickBtn = (scope, text) =>
   ev(`(() => {
     const b = Array.from(document.querySelectorAll(${JSON.stringify(scope + " button")}))
@@ -260,22 +262,49 @@ try {
   await openRowMenu("Etiquetas", "v1");
   await sleep(200);
   const tagMenu = await menuLabels();
-  check("menú de v1 trae las acciones remotas", tagMenu.includes("Subir al remoto") && tagMenu.includes("Borrar del remoto…"), JSON.stringify(tagMenu));
-  await clickMenuItem("Subir al remoto");
+  check("menú de v1 trae las acciones remotas", tagMenu.includes("Push") && tagMenu.includes("Borrar del remoto…"), JSON.stringify(tagMenu));
+  await clickMenuItem("Push");
   await sleep(1000);
   check("push del tag v1 sin error", (await lastError()) === null);
   git(A, "fetch", "-q", "origin");
   check("v1 llegó al remoto (fetch la ve)", git(A, "ls-remote", "origin", "refs/tags/v1").length > 0);
 
-  // Borrar con las dos confirmaciones encoladas (local: sí, remoto: sí).
+  // Borrar: un solo diálogo de 3 botones (con remoto), elegir "En local y
+  // en el remoto" (índice 0 = yes).
   await openRowMenu("Etiquetas", "v1");
   await sleep(200);
-  await setConfirms([true, true]);
+  await setChoices([0]);
   await clickMenuItem("Borrar…");
   await sleep(1000);
+  check("borrar tag local+remoto: una sola pregunta", (await msgs()).length === 1, JSON.stringify(await msgs()));
   check("borrar tag local+remoto sin error", (await lastError()) === null);
   git(A, "fetch", "-q", "origin", "--prune", "--prune-tags");
   check("v1 ya no está en el remoto", git(A, "ls-remote", "origin", "refs/tags/v1").length === 0);
+
+  // Elegir "Solo en local" (índice 1 = no): el remoto NO se toca.
+  git(A, "tag", "v2");
+  await clickBtn(".topbar", "Recargar"); // v2 se creó por git, no por la UI: no está en el estado de React todavía
+  await sleep(500);
+  const opened = await openRowMenu("Etiquetas", "v2");
+  check("v2 aparece en Etiquetas tras Recargar", opened);
+  await sleep(200);
+  await clickMenuItem("Push");
+  await sleep(1000);
+  git(A, "fetch", "-q", "origin");
+  check("v2 llegó al remoto antes de la prueba", git(A, "ls-remote", "origin", "refs/tags/v2").length > 0);
+  await openRowMenu("Etiquetas", "v2");
+  await sleep(200);
+  await setChoices([1]);
+  await clickMenuItem("Borrar…");
+  await sleep(1000);
+  check("borrar tag solo local: sin error", (await lastError()) === null);
+  // No se asume que el grupo "Etiquetas" siga en el DOM: v1 ya se borró
+  // arriba, así que borrar v2 puede dejar CERO tags y el grupo entero
+  // desaparece (el panel no pinta una sección vacía) — se comprueba contra
+  // git, no contra un elemento que puede no existir.
+  check("borrar tag solo local: ya no está en git local", git(A, "tag", "--list", "v2") === "");
+  git(A, "fetch", "-q", "origin");
+  check("borrar tag solo local: SIGUE en el remoto", git(A, "ls-remote", "origin", "refs/tags/v2").length > 0);
 
   // ===== 5b. doDeleteTag en un repo SIN remoto: no debe preguntar dos veces =====
   console.log("\n# 5b. Borrar tag sin remoto configurado");
@@ -498,7 +527,7 @@ try {
   await clickBtn(".topbar", "Pull");
   await sleep(1000);
   const divMsg = await lastError();
-  check("Pull divergente: el mensaje traducido, no el stderr crudo", divMsg?.includes("La rama ha divergido del remoto") ?? false, divMsg ?? "null");
+  check("Pull divergente: el mensaje traducido, no el stderr crudo", divMsg?.includes("No se puede hacer Pull") ?? false, divMsg ?? "null");
   check("Pull divergente: no menciona el hint crudo de git", divMsg ? !divMsg.includes("Diverging branches") : false, divMsg ?? "null");
 
   check("sin errores de consola", consoleErrors.length === 0, consoleErrors.join(" | "));

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { confirmAction, showMessage } from "./dialogs";
+import { chooseAction, confirmAction, showMessage } from "./dialogs";
 import {
   checkoutBranch,
   cherryPick,
@@ -56,7 +56,7 @@ import { Graph, ROW_H, WIP_HASH } from "./Graph";
 import { usePanels } from "./usePanels";
 import { BranchPanel } from "./BranchPanel";
 import { TabsBar } from "./TabsBar";
-import { basename, branchLabel, branchRef, busyClass, friendlyGitError, isGitError, shortDate, wipCommit } from "./format";
+import { basename, branchLabel, branchRef, busyClass, friendlyGitError, isGitError, opLabel, shortDate, wipCommit } from "./format";
 import {
   ACTIVE_KEY,
   DEFAULT_VIEW,
@@ -466,7 +466,7 @@ function App() {
       const que = paths.length === 1 ? "este archivo" : "estos archivos";
       const msg =
         (untracked
-          ? `¿Borrar ${que} sin seguir?`
+          ? `¿Borrar ${que} sin seguimiento?`
           : `¿Descartar los cambios de ${que}?`) +
         `\n\n${nombres.join("\n")}\n\nNo se puede deshacer.`;
       if (!(await confirmAction(msg))) return;
@@ -539,8 +539,8 @@ function App() {
   );
 
   const doOpAbort = useCallback(
-    async (root: string) => {
-      if (!(await confirmAction("¿Abortar y volver al estado de antes de empezar?"))) return;
+    async (root: string, opLabel: string) => {
+      if (!(await confirmAction(`¿Abortar ${opLabel} y volver a como estaba antes?`))) return;
       patchTab(root, { opBusy: true, error: null });
       try {
         await opAbort(root);
@@ -621,7 +621,7 @@ function App() {
   const doRebase = useCallback(
     async (root: string, onto: string) => {
       if (!onto.trim()) return;
-      if (!(await confirmAction(`¿Hacer rebase de la rama activa sobre "${onto}"?`))) return;
+      if (!(await confirmAction(`¿Hacer rebase de la rama actual sobre «${onto}»?`))) return;
       patchTab(root, { rebasing: true, error: null });
       try {
         await rebaseOnto(root, onto);
@@ -637,7 +637,7 @@ function App() {
 
   const doMerge = useCallback(
     async (root: string, branch: Branch) => {
-      if (!(await confirmAction(`¿Hacer merge de "${branch.name}" en la rama activa?`))) return;
+      if (!(await confirmAction(`¿Hacer merge de «${branch.name}» en la rama actual?`))) return;
       patchTab(root, { refBusy: true, error: null });
       try {
         await mergeBranch(root, branchRef(branch));
@@ -689,18 +689,19 @@ function App() {
   const doReset = useCallback(
     async (root: string, c: Commit, mode: ResetMode, branch: string | null, lost: StatusEntry[]) => {
       let msg =
-        `¿Mover ${branch ? `la rama "${branch}"` : "HEAD"} a ${c.short_hash} «${c.subject}»?\n\n` +
+        `¿Mover ${branch ? `la rama «${branch}»` : "HEAD"} a ${c.short_hash} «${c.subject}»?\n\n` +
         "Los commits posteriores dejarán de estar en la rama (siguen en el reflog).";
       if (mode === "soft") msg += "\n\nSus cambios quedan preparados (staged).";
       if (mode === "mixed") msg += "\n\nSus cambios quedan en tu carpeta, sin preparar.";
       if (mode === "hard") {
         const nombres = lost.slice(0, 8).map((e) => `  • ${e.path}`);
         if (lost.length > 8) nombres.push(`  … y ${lost.length - 8} más`);
+        const archivo = lost.length === 1 ? "archivo" : "archivos";
         msg +=
           lost.length > 0
-            ? `\n\nSE PERDERÁN los cambios sin guardar de ${lost.length} archivo(s):\n${nombres.join("\n")}`
-            : "\n\nNo hay cambios sin guardar que perder.";
-        msg += "\n(Los archivos sin seguir no se tocan.)";
+            ? `\n\nSe perderán los cambios pendientes de commit de ${lost.length} ${archivo}:\n${nombres.join("\n")}`
+            : "\n\nNo hay cambios pendientes de commit que perder.";
+        msg += "\n(Los archivos sin seguimiento no se tocan.)";
       }
       if (!(await confirmAction(msg))) return;
       void refOp(root, () => resetTo(root, c.hash, mode));
@@ -722,7 +723,7 @@ function App() {
 
   const doRenameBranch = useCallback(
     (root: string, b: Branch) => {
-      const name = window.prompt(`Nuevo nombre para la rama "${b.name}":`, b.name)?.trim();
+      const name = window.prompt(`Nuevo nombre para la rama «${b.name}»:`, b.name)?.trim();
       if (name && name !== b.name) void refOp(root, () => renameBranch(root, b.name, name));
     },
     [refOp],
@@ -730,7 +731,7 @@ function App() {
 
   const doDeleteBranch = useCallback(
     async (root: string, b: Branch) => {
-      if (!(await confirmAction(`¿Borrar la rama "${b.name}"? Solo la local; el remoto no se toca.`)))
+      if (!(await confirmAction(`¿Borrar la rama «${b.name}»? Solo la local; el remoto no se toca.`)))
         return;
       void refOp(root, async () => {
         try {
@@ -741,7 +742,7 @@ function App() {
             isGitError(e) &&
             e.kind === "not_merged" &&
             (await confirmAction(
-              `"${b.name}" tiene commits que no están en la rama actual y se perderían.\n\n¿Borrarla igualmente?`,
+              `«${b.name}» tiene commits que no están en la rama actual y se perderían.\n\n¿Borrarla igualmente?`,
             ));
           if (!forzar) throw e;
           await deleteBranch(root, b.name, true);
@@ -763,12 +764,25 @@ function App() {
 
   const doDeleteTag = useCallback(
     async (root: string, name: string, hasRemote: boolean) => {
-      if (!(await confirmAction(`¿Borrar el tag "${name}"? Solo el local; el remoto no se toca.`))) return;
-      // Una vez borrado el local, `list_tags` ya no lo trae y el menú de este
-      // tag (con "Borrar del remoto…") deja de ser alcanzable. Se ofrece
-      // aquí mismo, antes de que desaparezca de la lista. Sin remoto
-      // configurado no tiene sentido preguntar (fallaría siempre).
-      const alsoRemote = hasRemote && (await confirmAction(`¿Borrar "${name}" también del remoto?`));
+      // Un solo diálogo cuando hay remoto: antes eran dos confirmaciones
+      // encadenadas ("solo el local" seguido de "¿también el remoto?") que
+      // se contradecían, y cancelar la segunda no deshacía el borrado local
+      // que ya había pasado. Sin remoto configurado no tiene sentido
+      // preguntar por él (fallaría siempre).
+      let alsoRemote: boolean;
+      if (hasRemote) {
+        const choice = await chooseAction(
+          `¿Borrar el tag «${name}»?`,
+          "En local y en el remoto",
+          "Solo en local",
+          "Cancelar",
+        );
+        if (choice === "cancel") return;
+        alsoRemote = choice === "yes";
+      } else {
+        if (!(await confirmAction(`¿Borrar el tag «${name}»? No se puede deshacer.`))) return;
+        alsoRemote = false;
+      }
       void refOp(root, async () => {
         await deleteTag(root, name);
         if (!alsoRemote) return;
@@ -818,7 +832,7 @@ function App() {
 
   const doDeleteRemoteTag = useCallback(
     async (root: string, name: string) => {
-      if (!(await confirmAction(`¿Borrar el tag "${name}" del remoto? El local no se toca.`))) return;
+      if (!(await confirmAction(`¿Borrar el tag «${name}» del remoto? El local no se toca.`))) return;
       void refOp(root, () => deleteRemoteTag(root, name));
     },
     [refOp],
@@ -1114,7 +1128,7 @@ function App() {
       onSelect: () => doDeleteTag(root, t.name, active?.branches.some((b) => b.is_remote) ?? false),
     },
     {
-      label: "Subir al remoto",
+      label: "Push",
       disabled: menuBusy,
       onSelect: () => doPushTagRemote(root, t.name),
     },
@@ -1140,7 +1154,7 @@ function App() {
       { label: "Crear rama aquí…", disabled: menuBusy, onSelect: () => doCreateBranch(root, c.hash) },
       { label: "Crear tag aquí…", disabled: menuBusy, onSelect: () => doCreateTag(root, c.hash) },
       {
-        label: "Revert de este commit…",
+        label: "Hacer revert de este commit…",
         disabled: menuBusy || esMerge,
         title: esMerge
           ? "Un commit de fusión no se puede revertir desde gitpad"
@@ -1358,7 +1372,9 @@ function App() {
                 <button
                   className={busyClass(active.opBusy)}
                   disabled={active.opBusy}
-                  onClick={() => void doOpAbort(active.root)}
+                  onClick={() =>
+                    void doOpAbort(active.root, opLabel(active.opState!.kind))
+                  }
                 >
                   Abortar
                 </button>
@@ -1400,7 +1416,7 @@ function App() {
               <p className="clean empty-log">
                 {active.filterQuery.trim() || active.filterBranch || active.filterFile
                   ? "Ningún commit coincide con el filtro."
-                  : "Este repo aún no tiene commits."}
+                  : "Este repositorio aún no tiene commits."}
               </p>
             )}
             <div className={`commit-list${introOn ? " intro" : ""}`}>
@@ -1437,7 +1453,10 @@ function App() {
                         </div>
                         <div className="commit-meta">
                           <span>
-                            {active.status?.entries.length} cambios sin comprometer
+                            {active.status?.entries.length}{" "}
+                            {active.status?.entries.length === 1
+                              ? "cambio pendiente de commit"
+                              : "cambios pendientes de commit"}
                           </span>
                         </div>
                       </li>
@@ -1557,7 +1576,7 @@ function App() {
                 loading={active.diffLoading}
                 note={
                   active.sel?.t === "file" && active.sel.untracked
-                    ? "Archivo sin seguir — todavía no hay nada que comparar."
+                    ? "Archivo sin seguimiento — todavía no hay nada que comparar."
                     : undefined
                 }
               />
@@ -1598,7 +1617,7 @@ function App() {
                     : "Todos los archivos en HEAD"}
                 </h2>
                 {!treeTarget ? (
-                  <p className="clean">Este repo aún no tiene commits.</p>
+                  <p className="clean">Este repositorio aún no tiene commits.</p>
                 ) : active.treeLoading || active.treeHash !== treeTarget ? (
                   <div className="skeleton" role="status" aria-label="Cargando archivos">
                     {[80, 60, 72].map((w, i) => (
@@ -1838,7 +1857,7 @@ function App() {
                       </div>
                       <ul>
                         {unstagedEntries.length === 0 && (
-                          <li className="clean-row">Nada sin preparar</li>
+                          <li className="clean-row">Sin cambios</li>
                         )}
                         {unstagedEntries.map((e) => {
                           const untracked = e.unstaged === "?";
@@ -1875,7 +1894,7 @@ function App() {
                                 <button
                                   title={
                                     untracked
-                                      ? "Borrar archivo sin seguir"
+                                      ? "Borrar archivo sin seguimiento"
                                       : "Descartar cambios"
                                   }
                                   onClick={(ev) => {
@@ -1914,7 +1933,7 @@ function App() {
                         )}
                       </div>
                       <ul>
-                        {stagedEntries.length === 0 && <li className="clean-row">Nada preparado</li>}
+                        {stagedEntries.length === 0 && <li className="clean-row">Sin cambios</li>}
                         {stagedEntries.map((e) => (
                           <li
                             key={`s-${e.path}`}
@@ -2073,7 +2092,7 @@ function App() {
                       {s.message}
                     </span>
                     <button
-                      title="Aplicar y quitar de la lista"
+                      title="Aplicar y quitarlo de la lista"
                       disabled={active.stashBusy || active.opState !== null}
                       onClick={() => void doStashApply(active.root, s.index, true)}
                     >
@@ -2112,7 +2131,7 @@ function App() {
                         patchTab(active.root, { stashIncludeUntracked: ev.target.checked })
                       }
                     />
-                    Incluir archivos sin seguir
+                    Incluir archivos sin seguimiento
                   </label>
                   <button
                     className={busyClass(active.stashBusy)}

@@ -447,10 +447,10 @@ try {
   await waitFor("document.querySelector('.ctx-menu') ? 1 : null");
   const itemsC = await menuItems();
   check("el menú de un commit incluye Revert y los tres Reset",
-    ["Revert de este commit…", "Reset soft a este commit…", "Reset mixed a este commit…", "Reset hard a este commit…"].every((x) => itemsC.includes(x)), itemsC.join("|"));
+    ["Hacer revert de este commit…", "Reset soft a este commit…", "Reset mixed a este commit…", "Reset hard a este commit…"].every((x) => itemsC.includes(x)), itemsC.join("|"));
   check("Reset hard va en rojo", (await ev("document.querySelector('.ctx-menu button.danger')?.textContent.trim()")) === "Reset hard a este commit…");
   await answer("", [true]);
-  await clickBtn(".ctx-menu", "Revert de este commit…");
+  await clickBtn(".ctx-menu", "Hacer revert de este commit…");
   check("revert con conflicto: aparece el banner «Revert en curso»",
     await waitFor("document.querySelector('.conflict-banner')?.textContent.includes('Revert en curso') ? 1 : null").then(() => true, () => false));
   check("revert con conflicto: git tiene REVERT_HEAD", existsSync(join(P, ".git", "REVERT_HEAD")));
@@ -459,7 +459,7 @@ try {
     await waitFor("document.querySelector('.conflict-banner') ? null : 1").then(() => true, () => false) && git(P, "rev-parse", "HEAD") === antesRevert);
   await rightClick(commitRow("c4 toca b"));
   await waitFor("document.querySelector('.ctx-menu') ? 1 : null");
-  await clickBtn(".ctx-menu", "Revert de este commit…");
+  await clickBtn(".ctx-menu", "Hacer revert de este commit…");
   await waitFor("document.querySelector('.conflict-banner') ? 1 : null");
   put(P, "b.txt", cuerpo + "resuelto\n");
   git(P, "add", "-A");
@@ -472,13 +472,13 @@ try {
   await waitFor("document.querySelector('.ctx-menu') ? 1 : null");
   await answer("", [true]);
   const nAntes = Number(git(P, "rev-list", "--count", "HEAD"));
-  await clickBtn(".ctx-menu", "Revert de este commit…");
+  await clickBtn(".ctx-menu", "Hacer revert de este commit…");
   check("revert limpio: commit nuevo (historia +1) y m.txt desaparece",
     await waitGit(() => Number(git(P, "rev-list", "--count", "HEAD")) === nAntes + 1 && !existsSync(join(P, "m.txt"))));
   await reloadWith([rootP], rootP);
   await rightClick(commitRow("Merge branch 'rm'"));
   await waitFor("document.querySelector('.ctx-menu') ? 1 : null");
-  check("un commit de fusión no se puede revertir (deshabilitado)", (await menuItems()).includes("Revert de este commit… [off]"), (await menuItems()).join("|"));
+  check("un commit de fusión no se puede revertir (deshabilitado)", (await menuItems()).includes("Hacer revert de este commit… [off]"), (await menuItems()).join("|"));
   await send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
 
   // 3d. Reset. Se parte siempre de la punta original para que cada modo sea comparable.
@@ -504,7 +504,7 @@ try {
   await clickBtn(".ctx-menu", "Reset hard a este commit…");
   check("reset hard: HEAD queda en el commit elegido", await waitGit(() => git(P, "rev-parse", "HEAD") === p2));
   const msgHard = (await msgs())[0] ?? "";
-  check("reset hard: la confirmación nombra el archivo que se pierde", msgHard.includes("b.txt") && msgHard.includes("SE PERDERÁN"), msgHard.replace(/\n/g, " ⏎ "));
+  check("reset hard: la confirmación nombra el archivo que se pierde", msgHard.includes("b.txt") && msgHard.includes("Se perderán"), msgHard.replace(/\n/g, " ⏎ "));
   check("reset hard: NO menciona el archivo sin seguir como perdido", !msgHard.includes("  • sin_seguir.txt"), msgHard.replace(/\n/g, " ⏎ "));
   check("reset hard: el archivo sin seguir sobrevive", existsSync(join(P, "sin_seguir.txt")));
   check("reset hard: descarta el cambio sin guardar (b.txt ya no existe en c2)", !existsSync(join(P, "b.txt")));
@@ -518,7 +518,7 @@ try {
   await clickBtn(".ctx-menu", "Reset soft a este commit…");
   check("reset soft: HEAD se mueve", await waitGit(() => git(P, "rev-parse", "HEAD") === p2));
   check("reset soft: los cambios quedan preparados (staged)", git(P, "diff", "--cached", "--name-only").length > 0);
-  check("reset soft: la confirmación NO habla de perder cambios", !((await msgs())[0] ?? "").includes("SE PERDERÁN"));
+  check("reset soft: la confirmación NO habla de perder cambios", !((await msgs())[0] ?? "").includes("Se perderán"));
 
   // mixed: la rama se mueve y los cambios quedan en la carpeta sin preparar.
   irATip();
@@ -668,7 +668,7 @@ try {
   put(R, "nuevo.txt", "n\n");
   await reloadWith([rootR], rootR);
   const filasVacias = await ev("Array.from(document.querySelectorAll('.clean-row')).map((e) => e.textContent)");
-  check("secciones vacías: «Nada preparado» en vez de un «—»", filasVacias.includes("Nada preparado") && !filasVacias.includes("—"), filasVacias.join("|"));
+  check("secciones vacías: «Sin cambios» en vez de un «—»", filasVacias.includes("Sin cambios") && !filasVacias.includes("—"), filasVacias.join("|"));
   rmSync(join(R, "nuevo.txt"));
 
   // ===== Tanda 5. Hallazgos de la auditoría =====
