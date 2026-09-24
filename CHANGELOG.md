@@ -4,6 +4,25 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-09-24
+
+Revisión de iconos pedida por Lucas: instalador, desinstalador y ventana.
+Verificado contra el `.exe` de producción real (`cargo test` 45/45,
+`npm run test:unit`, `scripts/cdp/cdp-v090.mjs` en verde, 0 errores de
+consola) y comparando el icono extraído del binario antes/después.
+
+### Fixed
+
+- **La ventana solo tenía un icono de 16px** (`ICON_BIG` nulo, medido con
+  `WM_GETICON`), así que Windows lo estiraba para la barra de tareas y
+  Alt+Tab. Ahora `setup()` pide explícitamente los tamaños grande/pequeño
+  del propio `.exe` (`ExtractIconExW` + `WM_SETICON`) — confirmado que
+  `ICON_BIG` pasa a 32×32.
+- **El instalador y el desinstalador llevaban el icono genérico de NSIS**,
+  no el de gitpad — faltaba declarar `installerIcon`/`uninstallerIcon` en
+  `tauri.conf.json`. Confirmado extrayendo el icono real de ambos `.exe`
+  antes y después del fix.
+
 ## [0.9.0] - 2026-09-24
 
 Los 7 puntos de «Review 0.8.0» de Bernardo, más un bug crítico encontrado

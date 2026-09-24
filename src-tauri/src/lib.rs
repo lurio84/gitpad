@@ -2,6 +2,8 @@ mod crashlog;
 mod git;
 
 use std::path::Path;
+#[cfg(windows)]
+use tauri::Manager;
 
 use git::error::GitResult;
 use git::repo::{
@@ -249,6 +251,51 @@ fn commit(path: String, message: String, amend: bool) -> GitResult<String> {
     git::repo::commit(Path::new(&path), &message, amend)
 }
 
+// La ventana solo recibía un HICON de 16px (el que WebView2/tao pone por
+// defecto), así que Windows lo estiraba para la barra de tareas y Alt+Tab.
+// El .exe ya lleva incrustados todos los tamaños de icon.ico vía build.rs;
+// esto solo pide los tamaños que Windows usa para ICON_BIG/ICON_SMALL
+// (habitualmente 32/16px) y se los asigna explícitos a la ventana.
+#[cfg(windows)]
+fn set_window_icons(window: &tauri::WebviewWindow) {
+    use windows::core::HSTRING;
+    use windows::Win32::Foundation::{LPARAM, WPARAM};
+    use windows::Win32::UI::Shell::ExtractIconExW;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SendMessageW, HICON, ICON_BIG, ICON_SMALL, WM_SETICON,
+    };
+
+    let Ok(hwnd) = window.hwnd() else { return };
+    let Ok(exe) = std::env::current_exe() else { return };
+    let path = HSTRING::from(exe.to_string_lossy().as_ref());
+
+    let mut large = HICON::default();
+    let mut small = HICON::default();
+    let extracted = unsafe { ExtractIconExW(&path, 0, Some(&mut large), Some(&mut small), 1) };
+    if extracted == 0 {
+        return;
+    }
+
+    unsafe {
+        if !large.is_invalid() {
+            SendMessageW(
+                hwnd,
+                WM_SETICON,
+                Some(WPARAM(ICON_BIG as usize)),
+                Some(LPARAM(large.0 as isize)),
+            );
+        }
+        if !small.is_invalid() {
+            SendMessageW(
+                hwnd,
+                WM_SETICON,
+                Some(WPARAM(ICON_SMALL as usize)),
+                Some(LPARAM(small.0 as isize)),
+            );
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     if let Some(dir) = crashlog::default_dir() {
@@ -256,6 +303,13 @@ pub fn run() {
     }
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .setup(|_app| {
+            #[cfg(windows)]
+            if let Some(window) = _app.get_webview_window("main") {
+                set_window_icons(&window);
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             open_repo,
             get_log,
