@@ -1200,7 +1200,7 @@ function App() {
       {menu && <ContextMenu menu={menu} onClose={closeMenu} />}
       <header className="topbar">
         <button onClick={onPick} disabled={opening}>
-          {opening ? "Abriendo…" : "Abrir repo…"}
+          {opening ? "Abriendo…" : "Abrir repositorio…"}
         </button>
         {active && (
           <>
