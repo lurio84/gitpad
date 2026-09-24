@@ -956,7 +956,7 @@ pub fn pull(repo: &Path) -> GitResult<()> {
 pub fn push(repo: &Path) -> GitResult<()> {
     let st = status(repo)?;
     let branch = st.branch.ok_or_else(|| {
-        GitError::Parse("HEAD desprendido: no hay rama que subir".into())
+        GitError::Parse("HEAD desacoplado: no hay rama que subir".into())
     })?;
 
     let mut args: Vec<String> = NET_TIMEOUT.iter().map(|s| s.to_string()).collect();

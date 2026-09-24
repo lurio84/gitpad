@@ -691,8 +691,8 @@ function App() {
       let msg =
         `¿Mover ${branch ? `la rama «${branch}»` : "HEAD"} a ${c.short_hash} «${c.subject}»?\n\n` +
         "Los commits posteriores dejarán de estar en la rama (siguen en el reflog).";
-      if (mode === "soft") msg += "\n\nSus cambios quedan preparados (staged).";
-      if (mode === "mixed") msg += "\n\nSus cambios quedan en tu carpeta, sin preparar.";
+      if (mode === "soft") msg += "\n\nLos cambios de esos commits quedan en Staged.";
+      if (mode === "mixed") msg += "\n\nLos cambios de esos commits quedan en tu carpeta, en Unstaged.";
       if (mode === "hard") {
         const nombres = lost.slice(0, 8).map((e) => `  • ${e.path}`);
         if (lost.length > 8) nombres.push(`  … y ${lost.length - 8} más`);
@@ -1157,8 +1157,8 @@ function App() {
         label: "Hacer revert de este commit…",
         disabled: menuBusy || esMerge,
         title: esMerge
-          ? "Un commit de fusión no se puede revertir desde gitpad"
-          : "Crea un commit nuevo que deshace este (no reescribe historia)",
+          ? "Un commit de merge no se puede revertir desde gitpad"
+          : "Crea un commit nuevo que deshace los cambios de este (no reescribe la historia)",
         onSelect: () => void doRevert(root, c),
       },
       {

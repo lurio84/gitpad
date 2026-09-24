@@ -141,13 +141,20 @@ powershell scripts/cdp/native-dialog-click.ps1 -OwnerPid <pid> -Action click -Bu
 powershell scripts/cdp/native-dialog-click.ps1 -OwnerPid <pid> -Action click -ButtonText "En local y en el remoto"  # → borra los dos
 ```
 
-Las tres salidas de `deletetag` se verificaron en vivo contra el `.exe` real
-(no solo contra el seam, que solo comprueba el mapeo de rótulos → resultado,
-no que el plugin de verdad respete los rótulos personalizados). **Mueve el
-cursor real** — avisar antes de lanzarlo, y usar el PID del `.exe` de
-prueba, no el de una instancia real de Lucas si tiene alguna abierta. El
-diálogo es MODAL (`MAIN_WINDOW_ENABLED=False` mientras está abierto,
-comprobado con `IsWindowEnabled` de la ventana principal).
+Las tres salidas de `deletetag` se verificaron una vez en vivo, pero contra
+`tauri dev`, no contra el `.exe` — falta repetirlo contra el binario real
+antes de tagear. Esa pasada además solo confirmó «Solo en local» y «En local
+y en el remoto» con el cierre del diálogo comprobado de verdad (`find`
+después del clic, no solo el código de salida del clic); el intento de
+Cancelar no verificó que el diálogo se hubiera cerrado y no es fiable —
+repetirlo también. **Mueve el cursor real** — avisar antes de lanzarlo, y
+usar el PID del `.exe` de prueba, no el de una instancia real de Lucas si
+tiene alguna abierta (dos gitpad con el mismo título hacen ambiguo a qué
+proceso pertenece un diálogo). El diálogo es MODAL
+(`MAIN_WINDOW_ENABLED=False` mientras está abierto, comprobado con
+`IsWindowEnabled` de la ventana principal) — con más de un diálogo nativo
+abierto a la vez, `native-dialog-click.ps1` pulsa el mismo botón en todos:
+cerrar cualquier diálogo huérfano antes de lanzar el siguiente comando.
 
 **Gotcha de PowerShell, ya corregido pero anotado por si reaparece en un
 script nuevo**: `$algo = $lista | Where-Object {...}` con **un solo match**
