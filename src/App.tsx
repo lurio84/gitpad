@@ -1099,7 +1099,7 @@ function App() {
             label: "Borrar…",
             danger: true,
             disabled: menuBusy || b.is_head,
-            title: b.is_head ? "No se puede borrar la rama activa" : undefined,
+            title: b.is_head ? "No se puede borrar la rama actual" : undefined,
             onSelect: () => doDeleteBranch(root, b),
           },
         ]),
@@ -1403,7 +1403,9 @@ function App() {
             )}
             {active.filterQuery.trim() && (
               <p className="filter-info">
-                {active.commits.length} resultados para «{active.filterQuery}» ·{" "}
+                {active.commits.length}{" "}
+                {active.commits.length === 1 ? "resultado" : "resultados"} para «
+                {active.filterQuery}» ·{" "}
                 <button
                   className="link"
                   onClick={() => applyFilter(active.root, active.filterMode, "")}
@@ -1538,7 +1540,7 @@ function App() {
                         {!isMerge && (
                           <button
                             className="link cherry-btn"
-                            title="Aplicar este commit sobre la rama activa (cherry-pick)"
+                            title="Aplicar este commit sobre la rama actual (cherry-pick)"
                             disabled={active.cherryBusy || active.opState !== null}
                             onClick={(ev) => {
                               ev.stopPropagation();

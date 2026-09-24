@@ -55,6 +55,16 @@ check(
     friendlyGitError(`git falló (128): hint: Diverging branches can't be fast-forwarded`),
 );
 
+// push_tag (sin refspec con `+`): un tag que YA EXISTE en el remoto con otro
+// commit da el mismo patrón "[rejected]"+"failed to push" que una
+// divergencia real, pero el motivo es "(already exists)", no
+// fetch-first/non-fast-forward — capturado en vivo, no es divergencia y no
+// debe traducirse (el mensaje de Push sería falso: no hay nada que "Pull").
+const tagYaExiste =
+  `git falló (1): To origin\n ! [rejected]        v1 -> v1 (already exists)\n` +
+  `error: failed to push some refs to 'origin'\nhint: Updates were rejected because the tag already exists in the remote.`;
+check("push de un tag que ya existe: NO es divergencia, pasa crudo", friendlyGitError(tagYaExiste) === tagYaExiste);
+
 // Cualquier otro error de git pasa TAL CUAL (sin lista blanca de patrones).
 const otro = "git falló (128): fatal: pathspec 'no-existe.txt' did not match any files";
 check("error no reconocido: pasa crudo", friendlyGitError(otro) === otro);

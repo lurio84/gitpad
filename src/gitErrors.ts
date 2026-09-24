@@ -15,7 +15,11 @@
  * los scripts de test lo carguen directo con `node`, sin arrastrar
  * Graph.tsx a través de format.ts. */
 export function friendlyGitError(raw: string): string {
-  if (/\[rejected\]/.test(raw) && /failed to push/.test(raw)) {
+  // El motivo importa: `push_tag` (sin refspec con `+`) rechaza un tag que
+  // ya existe en el remoto con «(already exists)», mismo patrón `[rejected]`
+  // + «failed to push» que una divergencia real pero sin serlo — capturado
+  // en vivo. Exigir el motivo evita ese falso positivo.
+  if (/\[rejected\]/.test(raw) && /\((fetch first|non-fast-forward)\)/.test(raw) && /failed to push/.test(raw)) {
     return (
       "El remoto tiene commits que tu rama no tiene. Haz Pull primero; " +
       "si tu rama también tiene commits propios, combínalos con un merge " +

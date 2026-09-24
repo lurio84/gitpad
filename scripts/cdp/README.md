@@ -118,25 +118,47 @@ provocar un rename sin haber sembrado el mock primero. Si ocurre: matar
 `gitpad.exe` (y el `node`/`cargo` de `tauri dev`) por PID verificado y
 relanzar; no hay forma de recuperar la sesión desde fuera.
 
-**Antes de una release** (además de las 3 suites contra el `.exe`), pasar a
-mano el arnés de clic real sobre los diálogos NATIVOS (sin mock, contra
-`tauri dev` con un repo de prueba desechable) — es la única comprobación que
-ejercita de verdad el IPC hacia Rust y el diálogo real de Windows en vez del
-seam:
+**Antes de una release, contra el `.exe` final** (no contra `tauri dev`: los
+bugs de esta familia — capabilities, la CSP de v0.2.1 — solo aparecen en el
+binario empaquetado), pasar a mano el arnés de clic real sobre los diálogos
+NATIVOS (sin mock) con `dialog-drive.mjs` + `native-dialog-click.ps1` — es la
+única comprobación que ejercita de verdad el IPC hacia Rust y el diálogo
+real de Windows en vez del seam. Con `WEBVIEW2_USER_DATA_FOLDER` aislado
+(no tocar el perfil real) y un repo de prueba desechable con un remoto
+`bare` y un tag ya subido:
 
 ```
-node cdp/dlg-drive.mjs <repo> discard     # dispara el diálogo real de 🗑
+node scripts/cdp/dialog-drive.mjs <repo> seed
+node scripts/cdp/dialog-drive.mjs x discard          # dispara el diálogo real de 🗑
 powershell scripts/cdp/native-dialog-click.ps1 -OwnerPid <pid> -Action find
 powershell scripts/cdp/native-dialog-click.ps1 -OwnerPid <pid> -Action click -ButtonText Cancelar   # → archivo intacto
 powershell scripts/cdp/native-dialog-click.ps1 -OwnerPid <pid> -Action click -ButtonText Aceptar    # → archivo descartado
+node scripts/cdp/dialog-drive.mjs x about
+powershell scripts/cdp/native-dialog-click.ps1 -OwnerPid <pid> -Action click -ButtonText Aceptar
+node scripts/cdp/dialog-drive.mjs x deletetag <nombre>   # diálogo de 3 botones (doDeleteTag)
+powershell scripts/cdp/native-dialog-click.ps1 -OwnerPid <pid> -Action click -ButtonText "Cancelar"              # → no toca nada
+powershell scripts/cdp/native-dialog-click.ps1 -OwnerPid <pid> -Action click -ButtonText "Solo en local"         # → borra local, deja el remoto
+powershell scripts/cdp/native-dialog-click.ps1 -OwnerPid <pid> -Action click -ButtonText "En local y en el remoto"  # → borra los dos
 ```
 
-(`dlg-drive.mjs` era un script de scratchpad de sesión, no vive en el repo —
-reconstruir sus 3 comandos, `seed`/`discard`/`about`, es trivial: siembra
-`localStorage` con el tab y clica el botón correspondiente por selector CSS.)
-**Mueve el cursor real** — avisar antes de lanzarlo. El diálogo es MODAL
-(`MAIN_WINDOW_ENABLED=False` mientras está abierto, comprobado con
-`IsWindowEnabled` de la ventana principal).
+Las tres salidas de `deletetag` se verificaron en vivo contra el `.exe` real
+(no solo contra el seam, que solo comprueba el mapeo de rótulos → resultado,
+no que el plugin de verdad respete los rótulos personalizados). **Mueve el
+cursor real** — avisar antes de lanzarlo, y usar el PID del `.exe` de
+prueba, no el de una instancia real de Lucas si tiene alguna abierta. El
+diálogo es MODAL (`MAIN_WINDOW_ENABLED=False` mientras está abierto,
+comprobado con `IsWindowEnabled` de la ventana principal).
+
+**Gotcha de PowerShell, ya corregido pero anotado por si reaparece en un
+script nuevo**: `$algo = $lista | Where-Object {...}` con **un solo match**
+devuelve un STRING SUELTO, no un array de un elemento — `$algo[0]` saca
+entonces el primer CARÁCTER del string, no el elemento. Con eso, un hwnd
+construido a partir de ese "primer carácter" cae en un handle inválido:
+`GetWindowRect` no lanza excepción, simplemente devuelve `(0,0,0,0)` en
+silencio, y el clic aterriza en la esquina de la pantalla sin tocar nada
+— ningún error visible, solo un test que parece pasar pero no hizo nada.
+Forzar array con `@(...)` alrededor de todo `Where-Object` cuyo resultado
+se vaya a indexar.
 
 ## Notas
 

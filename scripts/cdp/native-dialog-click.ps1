@@ -83,16 +83,21 @@ public class NativeDialog {
 }
 "@
 
-$dialogs = [NativeDialog]::ListVisibleTopLevel() | Where-Object {
+$allWindows = [NativeDialog]::ListVisibleTopLevel()
+# @() en las dos: con un solo resultado, Where-Object devuelve un string
+# suelto y [0] sacaría su primer carácter en vez del elemento (mismo bug
+# que el de más abajo, con el mismo síntoma: un hwnd inválido y todo lo
+# que dependa de él fallando en silencio, nunca con una excepción).
+$dialogs = @($allWindows | Where-Object {
     $p = $_ -split '\|', 4
     [int]$p[1] -eq $OwnerPid -and $p[2] -eq "#32770"
-}
+})
 if ($dialogs.Count -eq 0) { Write-Output "NONE"; exit 0 }
 
-$mainWin = [NativeDialog]::ListVisibleTopLevel() | Where-Object {
+$mainWin = @($allWindows | Where-Object {
     $p = $_ -split '\|', 4
     [int]$p[1] -eq $OwnerPid -and $p[2] -eq "Tauri Window"
-}
+})
 if ($mainWin.Count -gt 0) {
     $mainHwnd = [IntPtr]([int64](($mainWin[0] -split '\|')[0]))
     Write-Output ("MAIN_WINDOW_ENABLED=" + [NativeDialog]::IsWindowEnabled($mainHwnd))
@@ -106,11 +111,15 @@ foreach ($d in $dialogs) {
     foreach ($b in $btns) { Write-Output "  BUTTON $b" }
 
     if ($Action -eq "click") {
-        $target = $btns | Where-Object { ($_ -split '\|', 2)[1] -eq $ButtonText }
-        if (-not $target) {
+        # @(...) fuerza array: con UN solo match, Where-Object devuelve un
+        # string suelto y $target[0] sacaría su primer CARÁCTER, no el
+        # elemento — el hwnd resultante era inválido y GetWindowRect
+        # devolvía (0,0,0,0) en silencio (clic fantasma en la esquina).
+        $target = @($btns | Where-Object { ($_ -split '\|', 2)[1] -eq $ButtonText })
+        if ($target.Count -eq 0) {
             Write-Output "NO_BUTTON_MATCH"
         } else {
-            $bHwnd = [IntPtr]([int64](($target[0]) -split '\|')[0])
+            $bHwnd = [IntPtr]([int64](($target[0] -split '\|', 2)[0]))
             [NativeDialog]::SetThreadDpiAwarenessContext([NativeDialog]::DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) | Out-Null
             $rect = New-Object NativeDialog+RECT
             [NativeDialog]::GetWindowRect($bHwnd, [ref]$rect) | Out-Null
