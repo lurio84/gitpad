@@ -96,6 +96,48 @@ de depuración de WebView2.
    Stop-Process -Id <pid> -Force
    ```
 
+## Confirmaciones/avisos nativos (`confirm`/`message` de `@tauri-apps/plugin-dialog`)
+
+`window.__TAURI_INTERNALS__.invoke` está **congelado** (`writable:false`,
+`configurable:false` en todas sus props salvo `plugins`) — comprobado en vivo,
+un script E2E no puede interceptar el IPC desde JS de página. Por eso
+`src/dialogs.ts` es el único punto de la app que llama a `confirm`/`message`
+del plugin, y mira primero `window.__E2E_DIALOG__`: si existe (lo instala
+`_dialog-mock.mjs` en `reloadWith`), lo usa en vez del diálogo real. **Toda
+suite que recargue la página con `Page.reload` fuera de su `reloadWith` debe
+volver a llamar `installDialogMock(ev)` después** — si no, la siguiente
+confirmación abre un diálogo nativo real que CDP no ve (pasó una vez en
+`cdp-v080.mjs`, tanda 2f).
+
+`window.prompt` (crear/renombrar rama) es distinto: no lo toca el plugin, así
+que `_dialog-mock.mjs` sigue sobrescribiéndolo directamente. **Ojo con esto: un
+`window.prompt()` real con el depurador CDP enganchado no muestra ningún
+diálogo y cuelga el proceso entero de gitpad de forma irrecuperable** —
+ningún `Runtime.evaluate` nuevo responde, ni siquiera `Page.enable`. Pasó al
+provocar un rename sin haber sembrado el mock primero. Si ocurre: matar
+`gitpad.exe` (y el `node`/`cargo` de `tauri dev`) por PID verificado y
+relanzar; no hay forma de recuperar la sesión desde fuera.
+
+**Antes de una release** (además de las 3 suites contra el `.exe`), pasar a
+mano el arnés de clic real sobre los diálogos NATIVOS (sin mock, contra
+`tauri dev` con un repo de prueba desechable) — es la única comprobación que
+ejercita de verdad el IPC hacia Rust y el diálogo real de Windows en vez del
+seam:
+
+```
+node cdp/dlg-drive.mjs <repo> discard     # dispara el diálogo real de 🗑
+powershell scripts/cdp/native-dialog-click.ps1 -OwnerPid <pid> -Action find
+powershell scripts/cdp/native-dialog-click.ps1 -OwnerPid <pid> -Action click -ButtonText Cancelar   # → archivo intacto
+powershell scripts/cdp/native-dialog-click.ps1 -OwnerPid <pid> -Action click -ButtonText Aceptar    # → archivo descartado
+```
+
+(`dlg-drive.mjs` era un script de scratchpad de sesión, no vive en el repo —
+reconstruir sus 3 comandos, `seed`/`discard`/`about`, es trivial: siembra
+`localStorage` con el tab y clica el botón correspondiente por selector CSS.)
+**Mueve el cursor real** — avisar antes de lanzarlo. El diálogo es MODAL
+(`MAIN_WINDOW_ENABLED=False` mientras está abierto, comprobado con
+`IsWindowEnabled` de la ventana principal).
+
 ## Notas
 
 - **`localStorage` se respalda y se restaura.** Los scripts que siembran pestañas

@@ -12,6 +12,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { installDialogMock } from "./_dialog-mock.mjs";
 
 const PORT = process.env.CDP_PORT ?? "9222";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -204,12 +205,15 @@ try {
   check("desmarcar amend restaura el borrador", (await ev("document.querySelector('.commitbox input[type=text]').value")) === "borrador en curso");
   await ev("document.querySelector('.commitbox .amend input').click()");
   await sleep(200);
-  const realConfirm = await ev("(() => { window.__c = window.confirm; window.confirm = () => true; return 1; })()");
+  await installDialogMock(ev);
+  const antesDelAmend = git(A, "rev-parse", "HEAD");
   await ev("document.querySelector('.commitbox button[type=submit]').click()");
   await sleep(1200);
+  // Guardián de no-vacuidad: si el commit nunca ocurre (p. ej. el diálogo de
+  // confirmación no se contesta), el mensaje ya coincidía de antes.
+  check("amend: HEAD cambia (el commit ocurrió de verdad)", git(A, "rev-parse", "HEAD") !== antesDelAmend);
   check("amend conserva el cuerpo", git(A, "log", "-1", "--format=%B") === "para amend\n\neste cuerpo debe sobrevivir");
   check("amend incluyó el archivo nuevo", git(A, "show", "--name-only", "--format=", "HEAD").includes("c5.txt"));
-  void realConfirm;
 
   // ===== 2. Reordenar pestañas =====
   console.log("\n# 2. Reordenar pestañas");

@@ -15,6 +15,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { keepLocalStorage } from "./_ls.mjs";
+import { installDialogMock } from "./_dialog-mock.mjs";
 
 const PORT = process.env.CDP_PORT ?? "9222";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -153,13 +154,7 @@ async function reloadWith(tabs, active) {
   // Diálogos nativos: confirm siempre acepta, prompt vacío, alert no bloquea
   // (About lo usa). Un array `__ca` permite encolar respuestas de confirm
   // distintas cuando hace falta (p. ej. doDeleteTag pregunta dos veces).
-  await ev(`(() => {
-    window.__msgs = [];
-    window.__ca = [];
-    window.confirm = (m) => { window.__msgs.push(m); return window.__ca.length ? window.__ca.shift() : true; };
-    window.prompt = (m) => { window.__msgs.push(m); return window.__pa ?? ""; };
-    window.alert = (m) => { window.__msgs.push(m); };
-    return 1; })()`);
+  await installDialogMock(ev);
 }
 const msgs = () => ev("window.__msgs ?? []");
 const setConfirms = (arr) => ev(`(() => { window.__ca = ${JSON.stringify(arr)}; return 1; })()`);

@@ -12,6 +12,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { keepLocalStorage } from "./_ls.mjs";
+import { installDialogMock } from "./_dialog-mock.mjs";
 
 const PORT = process.env.CDP_PORT ?? "9222";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -190,7 +191,7 @@ async function reloadWith(tabs, active) {
   await sleep(800);
   await waitFor("document.querySelector('.commit') ? 1 : null");
   // Los diálogos nativos de confirmación bloquearían el script.
-  await ev("(() => { window.confirm = () => true; return 1; })()");
+  await installDialogMock(ev);
 }
 /** Pone el valor de un <select> de React (setter nativo + evento `change`). */
 const selectValue = (sel, value) =>
@@ -284,8 +285,6 @@ try {
       window.__pa = ${JSON.stringify(prompt)};
       window.__ca = ${JSON.stringify(confirms)};
       window.__msgs = [];
-      window.prompt = (m) => { window.__msgs.push(m); return window.__pa; };
-      window.confirm = (m) => { window.__msgs.push(m); return window.__ca.length ? window.__ca.shift() : true; };
       return 1; })()`);
   const msgs = () => ev("window.__msgs");
   const rightClick = (expr) =>
@@ -371,6 +370,7 @@ try {
   await send("Page.reload", { ignoreCache: true });
   await sleep(800);
   await waitFor("document.querySelector('.commit') ? 1 : null");
+  await installDialogMock(ev);
   await answer("", [true]);
   await rightClick(branchRow("desde-c1"));
   await waitFor("document.querySelector('.ctx-menu') ? 1 : null");
@@ -406,7 +406,7 @@ try {
   // ===== Tanda 3. Historial de un archivo, revert y reset =====
   console.log("\n# 3. Historial de un archivo, revert y reset");
   await reloadWith([rootP], rootP);
-  await ev("(() => { window.confirm = () => true; return 1; })()");
+  await installDialogMock(ev);
   const filas = () => ev("Array.from(document.querySelectorAll('.commit .subject')).map((e) => e.textContent)");
   const total = (await filas()).length;
   const selectCommit = async (t) => {
