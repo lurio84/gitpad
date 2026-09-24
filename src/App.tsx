@@ -56,7 +56,7 @@ import { Graph, ROW_H, WIP_HASH } from "./Graph";
 import { usePanels } from "./usePanels";
 import { BranchPanel } from "./BranchPanel";
 import { TabsBar } from "./TabsBar";
-import { basename, branchLabel, branchRef, busyClass, isGitError, shortDate, wipCommit } from "./format";
+import { basename, branchLabel, branchRef, busyClass, friendlyGitError, isGitError, shortDate, wipCommit } from "./format";
 import {
   ACTIVE_KEY,
   DEFAULT_VIEW,
@@ -227,7 +227,7 @@ function App() {
           void reload(root, opts);
           return;
         }
-        const msg = isGitError(e) ? e.message : String(e);
+        const msg = isGitError(e) ? friendlyGitError(e.message) : String(e);
         if (opts?.dropOnError) {
           // Repo movido/borrado desde la última sesión: se quita la pestaña en
           // vez de dejarla clavada en un banner rojo en cada arranque.
@@ -275,7 +275,7 @@ function App() {
           ),
         );
       } catch (e) {
-        const msg = isGitError(e) ? e.message : String(e);
+        const msg = isGitError(e) ? friendlyGitError(e.message) : String(e);
         setTabs((ts) =>
           ts.map((t) =>
             t.root === root && sameSelection(t.sel, sel)
@@ -314,7 +314,7 @@ function App() {
         ),
       );
     } catch (e) {
-      const msg = isGitError(e) ? e.message : String(e);
+      const msg = isGitError(e) ? friendlyGitError(e.message) : String(e);
       setTabs((ts) =>
         ts.map((t) =>
           t.root === root && sameSelection(t.sel, sel)
@@ -344,7 +344,7 @@ function App() {
           ),
         );
       } catch (e) {
-        const msg = isGitError(e) ? e.message : String(e);
+        const msg = isGitError(e) ? friendlyGitError(e.message) : String(e);
         setTabs((ts) =>
           ts.map((t) =>
             t.root === root && t.sel?.t === "commit" && t.sel.hash === hash
@@ -376,7 +376,7 @@ function App() {
         ),
       );
     } catch (e) {
-      const msg = isGitError(e) ? e.message : String(e);
+      const msg = isGitError(e) ? friendlyGitError(e.message) : String(e);
       setTabs((ts) =>
         ts.map((t) =>
           t.root === root && t.treeHash === hash
@@ -394,7 +394,7 @@ function App() {
   const failTab = useCallback(
     (root: string, e: unknown) => {
       patchTab(root, {
-        error: isGitError(e) ? e.message : String(e),
+        error: isGitError(e) ? friendlyGitError(e.message) : String(e),
         committing: false,
         remoting: null,
         opBusy: false,
@@ -950,7 +950,7 @@ function App() {
       persistActive(info.root);
       void reload(info.root);
     } catch (e) {
-      setOpenError(isGitError(e) ? e.message : String(e));
+      setOpenError(isGitError(e) ? friendlyGitError(e.message) : String(e));
     } finally {
       setOpening(false);
     }

@@ -469,6 +469,38 @@ try {
   check("11c. centro sigue expandido", (await ev("document.querySelector('.body').classList.contains('diff-collapsed')")) === false);
   git(A, "branch", "-D", "recien-creada-11c"); // limpiar: deja el repo listo para lo que venga después.
 
+  // ===== 12. Mensaje de divergencia real (Pull, rama activa) =====
+  // Fixture propio y aislado (no reutiliza A/B: tras 11 tandas su historia
+  // real ya no es la que parece por el código de arriba). `pull --ff-only`
+  // (repo.rs) rechaza una divergencia de verdad; antes esto mostraba el
+  // stderr crudo de git, ahora pasa por friendlyGitError.
+  console.log("\n# 12. Mensaje de divergencia (Pull real)");
+  const originDiv = join(base, "origin-div.git");
+  mkdirSync(originDiv);
+  git(originDiv, "init", "-q", "--bare", "-b", "master");
+  const D1 = initRepo("div1");
+  put(D1, "d.txt", "0\n");
+  git(D1, "add", "-A");
+  git(D1, "commit", "-q", "-m", "base");
+  git(D1, "remote", "add", "origin", originDiv);
+  git(D1, "push", "-q", "-u", "origin", "master");
+  execFileSync("git", ["clone", "-q", originDiv, join(base, "div2")]);
+  const D2 = join(base, "div2");
+  git(D2, "config", "user.email", "t3@t.t");
+  git(D2, "config", "user.name", "t3");
+  put(D2, "d.txt", "desde d2\n");
+  git(D2, "commit", "-qam", "diverge en d2");
+  git(D2, "push", "-q", "origin", "master");
+  put(D1, "d.txt", "desde d1\n");
+  git(D1, "commit", "-qam", "diverge en d1");
+  const rootD1 = git(D1, "rev-parse", "--show-toplevel");
+  await reloadWith([rootD1], rootD1);
+  await clickBtn(".topbar", "Pull");
+  await sleep(1000);
+  const divMsg = await lastError();
+  check("Pull divergente: el mensaje traducido, no el stderr crudo", divMsg?.includes("La rama ha divergido del remoto") ?? false, divMsg ?? "null");
+  check("Pull divergente: no menciona el hint crudo de git", divMsg ? !divMsg.includes("Diverging branches") : false, divMsg ?? "null");
+
   check("sin errores de consola", consoleErrors.length === 0, consoleErrors.join(" | "));
 } finally {
   await restoreLS();

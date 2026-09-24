@@ -11,7 +11,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test:unit": "node scripts/test-worddiff.mjs && node scripts/test-panels.mjs && node scripts/test-dialog-seam.mjs",
+    "test:unit": "node scripts/test-worddiff.mjs && node scripts/test-panels.mjs && node scripts/test-dialog-seam.mjs && node scripts/test-friendly-error.mjs",
     "tauri": "tauri"
   },
   "dependencies": {

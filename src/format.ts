@@ -46,3 +46,5 @@ export function wipCommit(parent: string): Commit {
 export function isGitError(e: unknown): e is GitError {
   return typeof e === "object" && e !== null && "kind" in e && "message" in e;
 }
+
+export { friendlyGitError } from "./gitErrors";
