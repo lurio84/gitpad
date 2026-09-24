@@ -1,15 +1,23 @@
 # Clica un botón de un diálogo nativo de Windows (#32770, los que abre
-# tauri-plugin-dialog) con un clic de ratón REAL (SendInput), no con mensajes
-# Win32 simulados: BM_CLICK y WM_COMMAND se comprobaron en vivo contra estos
-# diálogos y NO los cierran de forma fiable (a veces no hacen nada, a veces
-# disparan el botón por defecto en vez del pedido). Solo el clic real funciona.
+# tauri-plugin-dialog) con BM_CLICK (mensaje Win32), no con un clic de ratón
+# físico. Historial: en una sesión anterior pareció que solo el clic real
+# funcionaba (BM_CLICK no cerraba el diálogo) — resultó ser un bug propio
+# (`$target[0]` sacando el primer carácter de un string en vez del elemento
+# de un array de un solo match, ver más abajo), no un problema de BM_CLICK.
+# Verificado de nuevo, limpio, contra el .exe de release: BM_CLICK cierra el
+# diálogo de forma fiable y el estado de git cambia como se espera para cada
+# botón. Aparte, en el entorno de esta herramienta (Claude Code) el clic
+# físico (SetCursorPos/SendInput) devuelve éxito pero NO mueve el cursor
+# real ni llega al botón — comprobado con GetCursorPos leyendo siempre el
+# centro de la pantalla sin cambiar. BM_CLICK no depende de eso: no mueve
+# nada, solo manda el mensaje directo al control.
 #
 # Uso:
-#   dlg = & native-dialog-click.ps1 -OwnerPid <pid> -Action find
+#   & native-dialog-click.ps1 -OwnerPid <pid> -Action find
 #   & native-dialog-click.ps1 -OwnerPid <pid> -Action click -ButtonText "Cancelar"
 #
-# MUEVE EL CURSOR DE VERDAD. Avisar antes de lanzarlo si alguien puede estar
-# usando el ratón en ese momento.
+# No mueve el cursor ni la ventana a primer plano — no hace falta avisar
+# antes de lanzarlo.
 param(
   [Parameter(Mandatory=$true)][int]$OwnerPid,
   [Parameter(Mandatory=$true)][ValidateSet("find","click")]$Action,
@@ -31,19 +39,10 @@ public class NativeDialog {
     [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
     [DllImport("user32.dll")] public static extern bool IsWindowEnabled(IntPtr hWnd);
-    [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
-    [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
-    [DllImport("user32.dll")] public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, UIntPtr dwExtraInfo);
-    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
-    [DllImport("user32.dll")] public static extern IntPtr GetParent(IntPtr hWnd);
-    [DllImport("user32.dll")] public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr dpiContext);
+    [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 
-    [StructLayout(LayoutKind.Sequential)]
-    public struct RECT { public int Left, Top, Right, Bottom; }
-
-    public static readonly IntPtr DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = new IntPtr(-4);
-    public const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
-    public const uint MOUSEEVENTF_LEFTUP = 0x0004;
+    public const uint BM_CLICK = 0x00F5;
 
     // Recolecta primero (results como texto plano "hwnd|pid|clase|título") y
     // resuelve nombres de proceso DESPUÉS, fuera del callback: llamar a
@@ -103,6 +102,19 @@ if ($mainWin.Count -gt 0) {
     Write-Output ("MAIN_WINDOW_ENABLED=" + [NativeDialog]::IsWindowEnabled($mainHwnd))
 }
 
+if ($Action -eq "click" -and $dialogs.Count -gt 1) {
+    # Con más de un diálogo abierto a la vez (huérfano de una sesión
+    # anterior, o dos acciones destructivas encoladas), un solo botón se
+    # pulsaría en TODOS — cerrar el sobrante con `find` primero y comprobar
+    # que solo queda uno antes de reintentar `click`.
+    Write-Output "MULTIPLE_DIALOGS: hay $($dialogs.Count) diálogos abiertos, no se pulsa nada"
+    foreach ($d in $dialogs) {
+        $dParts = $d -split '\|', 4
+        Write-Output ("  DIALOG hwnd=" + $dParts[0])
+    }
+    exit 1
+}
+
 foreach ($d in $dialogs) {
     $dParts = $d -split '\|', 4
     $dHwnd = [IntPtr]([int64]$dParts[0])
@@ -111,28 +123,22 @@ foreach ($d in $dialogs) {
     foreach ($b in $btns) { Write-Output "  BUTTON $b" }
 
     if ($Action -eq "click") {
-        # @(...) fuerza array: con UN solo match, Where-Object devuelve un
-        # string suelto y $target[0] sacaría su primer CARÁCTER, no el
-        # elemento — el hwnd resultante era inválido y GetWindowRect
-        # devolvía (0,0,0,0) en silencio (clic fantasma en la esquina).
         $target = @($btns | Where-Object { ($_ -split '\|', 2)[1] -eq $ButtonText })
         if ($target.Count -eq 0) {
             Write-Output "NO_BUTTON_MATCH"
         } else {
             $bHwnd = [IntPtr]([int64](($target[0] -split '\|', 2)[0]))
-            [NativeDialog]::SetThreadDpiAwarenessContext([NativeDialog]::DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) | Out-Null
-            $rect = New-Object NativeDialog+RECT
-            [NativeDialog]::GetWindowRect($bHwnd, [ref]$rect) | Out-Null
-            $cx = [int](($rect.Left + $rect.Right) / 2)
-            $cy = [int](($rect.Top + $rect.Bottom) / 2)
-            [NativeDialog]::SetForegroundWindow($dHwnd) | Out-Null
-            Start-Sleep -Milliseconds 200
-            [NativeDialog]::SetCursorPos($cx, $cy) | Out-Null
-            Start-Sleep -Milliseconds 100
-            [NativeDialog]::mouse_event([NativeDialog]::MOUSEEVENTF_LEFTDOWN, 0, 0, 0, [UIntPtr]::Zero)
-            Start-Sleep -Milliseconds 80
-            [NativeDialog]::mouse_event([NativeDialog]::MOUSEEVENTF_LEFTUP, 0, 0, 0, [UIntPtr]::Zero)
-            Write-Output "CLICKED $ButtonText at ($cx,$cy)"
+            [NativeDialog]::SendMessage($bHwnd, [NativeDialog]::BM_CLICK, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+            # Confirma el cierre en vez de asumirlo por el código de salida
+            # del propio SendMessage (que no dice nada sobre si el diálogo
+            # de verdad se cerró).
+            $closed = $false
+            for ($i = 0; $i -lt 20; $i++) {
+                Start-Sleep -Milliseconds 100
+                if (-not [NativeDialog]::IsWindow($dHwnd)) { $closed = $true; break }
+            }
+            Write-Output ($(if ($closed) { "CLICKED $ButtonText -- CLOSED" } else { "CLICKED $ButtonText -- STILL_OPEN (fallo real)" }))
+            if (-not $closed) { exit 1 }
         }
     }
 }

@@ -120,12 +120,12 @@ relanzar; no hay forma de recuperar la sesión desde fuera.
 
 **Antes de una release, contra el `.exe` final** (no contra `tauri dev`: los
 bugs de esta familia — capabilities, la CSP de v0.2.1 — solo aparecen en el
-binario empaquetado), pasar a mano el arnés de clic real sobre los diálogos
-NATIVOS (sin mock) con `dialog-drive.mjs` + `native-dialog-click.ps1` — es la
-única comprobación que ejercita de verdad el IPC hacia Rust y el diálogo
-real de Windows en vez del seam. Con `WEBVIEW2_USER_DATA_FOLDER` aislado
-(no tocar el perfil real) y un repo de prueba desechable con un remoto
-`bare` y un tag ya subido:
+binario empaquetado), pasar a mano el arnés sobre los diálogos NATIVOS (sin
+mock) con `dialog-drive.mjs` + `native-dialog-click.ps1` — es la única
+comprobación que ejercita de verdad el IPC hacia Rust y el diálogo real de
+Windows en vez del seam. Con `WEBVIEW2_USER_DATA_FOLDER` aislado (no tocar
+el perfil real) y un repo de prueba desechable con un remoto `bare` y un tag
+ya subido:
 
 ```
 node scripts/cdp/dialog-drive.mjs <repo> seed
@@ -141,20 +141,32 @@ powershell scripts/cdp/native-dialog-click.ps1 -OwnerPid <pid> -Action click -Bu
 powershell scripts/cdp/native-dialog-click.ps1 -OwnerPid <pid> -Action click -ButtonText "En local y en el remoto"  # → borra los dos
 ```
 
-Las tres salidas de `deletetag` se verificaron una vez en vivo, pero contra
-`tauri dev`, no contra el `.exe` — falta repetirlo contra el binario real
-antes de tagear. Esa pasada además solo confirmó «Solo en local» y «En local
-y en el remoto» con el cierre del diálogo comprobado de verdad (`find`
-después del clic, no solo el código de salida del clic); el intento de
-Cancelar no verificó que el diálogo se hubiera cerrado y no es fiable —
-repetirlo también. **Mueve el cursor real** — avisar antes de lanzarlo, y
-usar el PID del `.exe` de prueba, no el de una instancia real de Lucas si
-tiene alguna abierta (dos gitpad con el mismo título hacen ambiguo a qué
-proceso pertenece un diálogo). El diálogo es MODAL
-(`MAIN_WINDOW_ENABLED=False` mientras está abierto, comprobado con
-`IsWindowEnabled` de la ventana principal) — con más de un diálogo nativo
-abierto a la vez, `native-dialog-click.ps1` pulsa el mismo botón en todos:
-cerrar cualquier diálogo huérfano antes de lanzar el siguiente comando.
+`native-dialog-click.ps1` clica con `BM_CLICK` (mensaje Win32 directo al
+control), **no mueve el ratón ni la ventana**: no hace falta avisar antes de
+lanzarlo. `Action click` no da el clic por bueno solo por el código de
+salida de `SendMessage` — sondea `IsWindow` hasta 2 s y solo dice `CLOSED` si
+el diálogo de verdad desapareció; con más de un diálogo abierto a la vez se
+niega a pulsar nada (`MULTIPLE_DIALOGS`) en vez de pulsar el mismo botón en
+todos. El diálogo es MODAL (`MAIN_WINDOW_ENABLED=False` mientras está
+abierto, comprobado con `IsWindowEnabled` de la ventana principal). Usar
+siempre el PID del `.exe` de prueba, no el de una instancia real de Lucas si
+tiene alguna abierta.
+
+Las seis salidas (descartar × Cancelar/Aceptar, About, borrar tag ×
+Cancelar/Solo en local/En local y en el remoto) se verificaron en vivo
+contra el `.exe` de release real (`v0.9.0`, `tauri.localhost`), con el
+cierre del diálogo confirmado por `IsWindow` en cada una y el resultado
+contrastado contra `git tag --list`/`ls-remote`, no solo contra el texto
+que imprime el script.
+
+**Nota histórica**: un intento anterior con clic de ratón físico
+(`SetCursorPos`/`SendInput`) parecía funcionar en una sesión y fallar en
+otra sin motivo aparente — resultó que el entorno de esta herramienta no
+tiene acceso real al escritorio interactivo (`GetCursorPos` después de
+`SetCursorPos(x,y)` seguía devolviendo el centro de la pantalla sin
+moverse, con `SetCursorPos`/`SendInput` reportando éxito los dos). `BM_CLICK`
+no depende de eso — manda el mensaje directo a la ventana del botón — y es
+el método correcto para este caso, no un segundo intento.
 
 **Gotcha de PowerShell, ya corregido pero anotado por si reaparece en un
 script nuevo**: `$algo = $lista | Where-Object {...}` con **un solo match**
