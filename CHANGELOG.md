@@ -4,6 +4,58 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-09-24
+
+Los 7 puntos de «Review 0.8.0» de Bernardo, más un bug crítico encontrado
+al repasarlos y una revisión completa de las traducciones. Verificado
+contra la app real por CDP (`scripts/cdp/cdp-v070/080/090.mjs`, 0 errores
+de consola), `cargo test` (45 tests), `npm run test:unit` y el arnés de
+clic real sobre los diálogos nativos.
+
+### Fixed — crítico
+
+- **Ninguna confirmación de la app bloqueaba nada, desde antes de v0.5.0.**
+  Sin el permiso `dialog:allow-confirm`, `window.confirm` lanzaba una
+  excepción silenciosa en vez de mostrar un diálogo: descartar cambios,
+  reset hard, borrar rama, borrar tag, abortar rebase, merge, revert…
+  pasaban todas de largo como si Bernardo hubiera dicho que sí. Un primer
+  intento de arreglo (permisos + `await`) tampoco funcionó de verdad:
+  `tauri-plugin-dialog` 2.7.3 quitó el comando IPC que `window.confirm`
+  esperaba. Solución real: `src/dialogs.ts`, el único punto de la app que
+  llama al paquete oficial `@tauri-apps/plugin-dialog`. Verificado con
+  clics reales (ratón físico) sobre el diálogo nativo, no solo con mocks.
+- **Borrar un tag con remoto preguntaba dos veces y se contradecía**: «solo
+  el local» seguido de «¿también el remoto?», y cancelar la segunda no
+  deshacía el borrado local que ya había pasado. Ahora es un único diálogo
+  de 3 botones propios («En local y en el remoto» / «Solo en local» /
+  «Cancelar»).
+
+### Added
+
+- **About** con la versión instalada (botón «ⓘ»).
+- **Ctrl+Enter** commitea; **Ctrl+clic** (o reclic) en un commit lo
+  deselecciona y colapsa el centro a la lista completa.
+- **Lista de Etiquetas** bajo Ramas, con menú (ir al commit, borrar local
+  y/o remoto, subir al remoto).
+- **Pull/push de cualquier rama local**, no solo la activa, con un refspec
+  cualificado (deja que sea git quien decida fast-forward/HEAD/worktree).
+
+### Changed
+
+- El mensaje de un `pull`/`push` que choca con divergencia real ya no
+  enseña el stderr crudo de git: distingue Pull («la rama y el remoto han
+  divergido») de Push («el remoto tiene commits que tu rama no tiene»,
+  sin asumir divergencia cuando solo va por detrás).
+- Repaso de traducciones: términos unificados (comillas «…», «rama
+  actual», «sin seguimiento», «HEAD desacoplado» — contrastado contra la
+  traducción oficial de git), plurales corregidos («1 cambio»/«N
+  cambios», «1 resultado»/«N resultados»), y las 13 frases de
+  confirmación (nunca vistas por nadie hasta este fix) redactadas de cero.
+
+### Requisitos
+
+- Git ≥ 2.24 (sin cambios).
+
 ## [0.8.0] - 2026-09-20
 
 Cierre de todo lo pendiente tras la v0.7.0: los huecos de producto que más

@@ -36,10 +36,13 @@ buscar commits por mensaje o por contenido, fetch/pull/push, stash, cherry-pick,
 rebase simple y merge — con detección de conflicto y un banner para continuar o
 abortar la operación a medio camino.
 
-Con el clic derecho: crear, renombrar y borrar ramas; crear y borrar tags
-(locales); crear una rama o un tag en cualquier commit; revert; reset
-soft/mixed/hard (la confirmación de `--hard` nombra lo que se pierde); y el
-historial de un solo archivo, que sigue los renombrados.
+Con el clic derecho: crear, renombrar y borrar ramas; crear tags y borrarlos
+en local y/o en el remoto; crear una rama o un tag en cualquier commit;
+revert; reset soft/mixed/hard (la confirmación de `--hard` nombra lo que se
+pierde); y el historial de un solo archivo, que sigue los renombrados. La
+lista de Etiquetas (bajo Ramas) también permite subir un tag al remoto.
+Pull/push funciona en cualquier rama local, no solo la activa. Ctrl+Enter
+commitea y Ctrl+clic en un commit lo deselecciona.
 
 Para revisar: los archivos de un commit en lista o en árbol, y una pestaña
 «Todos los archivos» con el árbol completo del proyecto en ese commit y un visor
@@ -47,15 +50,16 @@ del contenido de cada archivo. El cuadro de commit separa Resumen y Descripción
 Los paneles laterales se ensanchan arrastrando su borde y las pestañas se
 reordenan arrastrándolas. El diff resalta las palabras que cambian dentro de una
 línea. Todo se maneja también con el teclado (Tab, Enter/Espacio, flechas en la
-lista de commits, Shift+F10 para el menú contextual).
+lista de commits, Shift+F10 para el menú contextual). Un botón «ⓘ» muestra la
+versión instalada.
 
 ## Fuera de alcance (v0)
 
 Editor de conflictos 3-vías, rebase interactivo, PRs/issues de GitHub in-app,
 LFS, submódulos (aparecen como una ruta más y avisan de que no se pueden
 mostrar), gestión de worktrees (crear/mover/borrar — sí se soportan de forma
-pasiva: abrirlos y no romper el checkout), blame, comparar ramas, push de tags,
-clonar, macOS/Linux.
+pasiva: abrirlos y no romper el checkout), blame, comparar ramas, clonar,
+macOS/Linux.
 
 Requiere Git ≥ 2.24.
 
