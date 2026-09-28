@@ -72,9 +72,13 @@ de depuración de WebView2.
      tag, tag y rama homónimos), pull/push de una rama que no es la activa, botón "⋯"
      visible (también activado con `clientX/Y` en 0, como el teclado), y el hueco
      histórico del proyecto — fetch/pull/push, stash y cherry-pick — que nunca tuvo
-     un script E2E persistido. Sale con código 1 si falla algo o hay error de consola.
-     Restaura `localStorage`. `window.alert` también se sobrescribe (bloquearía
-     `Runtime.evaluate`), con el mismo patrón de cola que `confirm`/`prompt`.
+     un script E2E persistido, y (§13, Review 0.9.2) que el clic en una rama YA NO
+     hace checkout: solo selecciona su commit tip (local y remota), con scroll a la
+     fila si queda fuera de vista, y es un no-op si el tip no está en la lista
+     cargada (filtro de rama activo); el checkout real sigue en el menú "⋯". Sale
+     con código 1 si falla algo o hay error de consola. Restaura `localStorage`.
+     `window.alert` también se sobrescribe (bloquearía `Runtime.evaluate`), con el
+     mismo patrón de cola que `confirm`/`prompt`.
    - Aceptan como target tanto `localhost:1420` (dev) como `tauri.localhost`
      (binario de producción), sin tocar nada: `cdp-split-diff`, `cdp-graph`,
      `cdp-row-height`, `cdp-log-view` y `cdp-shots`. Los demás (`cdp-e2e`,

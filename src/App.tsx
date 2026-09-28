@@ -1105,12 +1105,21 @@ function App() {
         ]),
   ];
   // Solo salta al commit si está en la lista ya cargada (sin filtro/paginación
-  // de por medio); si no, el ítem del menú sale deshabilitado.
+  // de por medio); si no, el ítem del menú (o el clic en la rama) sale
+  // deshabilitado / no hace nada.
   const goToCommit = (root: string, hash: string) => {
     const c = active?.commits.find((x) => x.hash === hash);
     if (!c) return;
     void loadDiff(root, { t: "commit", hash: c.hash, isMerge: c.parents.length > 1 });
     void loadCommitFiles(root, c.hash);
+    // La fila puede estar fuera del viewport (lista larga): el clic en una
+    // rama no debe obligar a buscarla a mano. rAF, no el propio setState
+    // síncrono de arriba: hay que esperar a que React pinte la fila `.sel`.
+    requestAnimationFrame(() => {
+      document
+        .querySelector(`.commit-list li[data-hash="${hash}"]`)
+        ?.scrollIntoView({ block: "nearest" });
+    });
   };
   const tagItems = (root: string, t: Tag): MenuItem[] => [
     {
@@ -1354,7 +1363,7 @@ function App() {
             openMenu={openMenu}
             branchItems={branchItems}
             tagItems={tagItems}
-            doCheckout={doCheckout}
+            goToCommit={goToCommit}
             doCreateBranch={doCreateBranch}
             doMerge={doMerge}
             doRebase={doRebase}
@@ -1478,6 +1487,7 @@ function App() {
                   return (
                     <li
                       key={c.hash}
+                      data-hash={c.hash}
                       aria-current={on ? "true" : undefined}
                       {...listRow(selVisible ? c.hash === selHash : idx === 0)}
                       className={`commit${on ? " sel" : ""}`}

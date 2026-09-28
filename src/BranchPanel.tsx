@@ -13,7 +13,7 @@ interface Props {
   openMenu: (ev: React.MouseEvent, heading: string, items: MenuItem[]) => void;
   branchItems: (root: string, b: Branch, blocked: boolean) => MenuItem[];
   tagItems: (root: string, t: Tag) => MenuItem[];
-  doCheckout: (root: string, name: string) => Promise<void>;
+  goToCommit: (root: string, hash: string) => void;
   doCreateBranch: (root: string, at?: string) => void;
   doMerge: (root: string, branch: Branch) => Promise<void>;
   doRebase: (root: string, onto: string) => Promise<void>;
@@ -21,7 +21,7 @@ interface Props {
   patchTab: (root: string, patch: Partial<Tab>) => void;
 }
 
-export function BranchPanel({ active, menuBusy, openMenu, branchItems, tagItems, doCheckout, doCreateBranch, doMerge, doRebase, applyBranch, patchTab }: Props) {
+export function BranchPanel({ active, menuBusy, openMenu, branchItems, tagItems, goToCommit, doCreateBranch, doMerge, doRebase, applyBranch, patchTab }: Props) {
   return (
     <aside className="branches">
       <div className="branches-head">
@@ -52,6 +52,12 @@ export function BranchPanel({ active, menuBusy, openMenu, branchItems, tagItems,
                 // puede cambiar de rama: solo quedan vivos Continuar y
                 // Abortar en el banner de arriba.
                 const blocked = locked || active.opState !== null;
+                // El clic solo puede saltar a un commit ya presente en la
+                // lista cargada (mismo límite que "Ir al commit" de una
+                // etiqueta): con un filtro de rama activo, o si el tip cayó
+                // fuera de la página cargada, el clic no hace nada — avisar
+                // en el title en vez de dejarlo en silencio.
+                const tipLoaded = active.commits.some((c) => c.hash === b.target);
                 return (
                   <li
                     key={b.name}
@@ -61,15 +67,13 @@ export function BranchPanel({ active, menuBusy, openMenu, branchItems, tagItems,
                       locked ? " locked" : ""
                     }`}
                     title={
-                      active.opState
-                        ? "Hay una operación en curso — continúa o aborta antes de cambiar de rama"
+                      !tipLoaded
+                        ? `${b.name} — su commit no está en la lista cargada (filtro de rama o paginación); usa el menú ⋯ para el checkout`
                         : locked
-                          ? `Abierta en otro worktree: ${b.worktree_path}`
-                          : b.name
+                          ? `Abierta en otro worktree: ${b.worktree_path} — clic para ver su commit`
+                          : `${b.name} — clic para ver su commit, checkout desde el menú ⋯`
                     }
-                    onClick={() =>
-                      !blocked && void doCheckout(active.root, b.checkout_arg)
-                    }
+                    onClick={() => goToCommit(active.root, b.target)}
                     onContextMenu={(ev) =>
                       openMenu(ev, b.name, branchItems(active.root, b, blocked))
                     }

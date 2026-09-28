@@ -116,6 +116,7 @@ git(R, "add", "-A");
 git(R, "commit", "-q", "-m", "r1");
 git(R, "branch", "otra");
 const rootR = git(R, "rev-parse", "--show-toplevel");
+const r1Hash = git(R, "rev-parse", "HEAD");
 
 // ---------- CDP ----------
 const list = await (await fetch(`http://localhost:${PORT}/json`)).json();
@@ -642,12 +643,19 @@ try {
     await waitFor("document.querySelectorAll('.tab').length === 1 ? 1 : null").then(() => true, () => false));
   check("pestañas: y la que queda es la otra (no hubo doble disparo)", (await ev("document.querySelector('.tab .tab-name').textContent")) === "repoN", await ev("document.querySelector('.tab .tab-name').textContent"));
 
-  // Ramas: Enter en una rama no actual hace checkout.
+  // Ramas: Enter en una rama no actual va a su commit, YA NO hace checkout
+  // (Review 0.9.2 de Bernardo: "el checkout con solo click es demasiado
+  // agresivo" — el checkout real sigue en el menú ⋯, ver cdp-v090.mjs §13).
   await reloadWith([rootR], rootR);
   check("ramas: la rama actual lleva aria-current", (await ev("document.querySelector('.branch-item.current')?.getAttribute('aria-current')")) === "true");
   await ev(`(${branchRow("otra")}).focus()`);
   await enter();
-  check("ramas: Enter sobre «otra» hace checkout", await waitGit(() => git(R, "branch", "--show-current") === "otra"));
+  await sleep(300);
+  check("ramas: Enter sobre «otra» NO hace checkout", git(R, "branch", "--show-current") === "master");
+  check(
+    "ramas: Enter sobre «otra» selecciona su commit",
+    await ev(`document.querySelector('.commit.sel')?.getAttribute('data-hash') === ${JSON.stringify(r1Hash)}`),
+  );
 
   // ===== Tanda 4. Estados vacíos =====
   console.log("\n# 6. Estados vacíos");

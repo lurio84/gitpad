@@ -129,6 +129,9 @@ pub struct Branch {
     pub worktree_path: Option<String>,
     pub is_head: bool,
     pub is_remote: bool,
+    /// Commit al que apunta la rama (`%(objectname)`), para saltar a su
+    /// commit sin hacer checkout (clic simple en `BranchPanel`).
+    pub target: String,
 }
 
 /// Qué filtrar en `log`. La búsqueda va sobre `--all` salvo que `log` reciba una
@@ -844,7 +847,7 @@ pub fn commit(repo: &Path, message: &str, amend: bool) -> GitResult<String> {
 /// de traducir después el error de `checkout`.
 pub fn branches(repo: &Path) -> GitResult<Vec<Branch>> {
     let fmt = format!(
-        "%(refname){FS}%(upstream:short){FS}%(worktreepath){FS}%(HEAD){FS}%(upstream:remotename){FS}%(upstream:remoteref)"
+        "%(refname){FS}%(upstream:short){FS}%(worktreepath){FS}%(HEAD){FS}%(upstream:remotename){FS}%(upstream:remoteref){FS}%(objectname)"
     );
     let out = run_git(
         repo,
@@ -867,9 +870,9 @@ fn parse_branch_lines(raw: &str) -> GitResult<Vec<Branch>> {
             continue;
         }
         let f: Vec<&str> = line.split(FS).collect();
-        if f.len() != 6 {
+        if f.len() != 7 {
             return Err(GitError::Parse(format!(
-                "esperados 6 campos por rama, encontrados {}",
+                "esperados 7 campos por rama, encontrados {}",
                 f.len()
             )));
         }
@@ -906,6 +909,7 @@ fn parse_branch_lines(raw: &str) -> GitResult<Vec<Branch>> {
             upstream_remote: (!f[4].is_empty()).then(|| f[4].to_string()),
             upstream_ref: (!f[5].is_empty()).then(|| f[5].to_string()),
             is_remote,
+            target: f[6].to_string(),
         });
     }
     Ok(branches)

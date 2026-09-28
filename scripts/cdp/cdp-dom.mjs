@@ -95,6 +95,9 @@ const lockedCount = await evalJs(
 console.log("ramas bloqueadas (worktree) en el DOM:", lockedCount);
 
 // Clic en 'fase-2' en el panel de ramas (evento real, como haría Bernardo).
+// Review 0.9.2 de Bernardo: el clic YA NO hace checkout, solo selecciona el
+// commit al que apunta (ver BranchPanel.tsx/cdp-v090.mjs §13) — el checkout
+// real vive ahora en el menú "⋯" (Checkout).
 const clicked = await evalJs(`
   (() => {
     const li = Array.from(document.querySelectorAll('.branch-item')).find(
@@ -108,18 +111,55 @@ const clicked = await evalJs(`
 console.log("clic en rama 'fase-2':", clicked);
 await sleep(1200);
 
-const headAfterClick = await waitFor(
+const selAfterClick = await evalJs(
+  "document.querySelector('.commit.sel .subject')?.textContent ?? null",
+);
+console.log("commit seleccionado tras el clic en 'fase-2':", selAfterClick);
+const branchAfterClick = await evalJs(
   "document.querySelector('.branch')?.textContent",
 );
-console.log("rama activa en la topbar tras el clic:", headAfterClick);
+console.log("rama activa en la topbar (NO debe haber cambiado):", branchAfterClick);
 
-// Volver a master vía DOM para dejar limpio.
+// Checkout real: menú "⋯" de la rama, no el clic.
+await evalJs(`
+  (() => {
+    const li = Array.from(document.querySelectorAll('.branch-item')).find(
+      (el) => el.querySelector('.branch-name')?.textContent === 'fase-2'
+    );
+    li?.querySelector('.branch-menu')?.click();
+  })()
+`);
+await sleep(300);
+await evalJs(`
+  (() => {
+    const b = Array.from(document.querySelectorAll('.ctx-menu button')).find(
+      (x) => x.textContent.trim() === 'Checkout'
+    );
+    b?.click();
+  })()
+`);
+await sleep(1200);
+const headAfterCheckout = await waitFor(
+  "document.querySelector('.branch')?.textContent",
+);
+console.log("rama activa tras Checkout desde el menú ⋯:", headAfterCheckout);
+
+// Volver a master vía el menú ⋯ (checkout real) para dejar limpio.
 await evalJs(`
   (() => {
     const li = Array.from(document.querySelectorAll('.branch-item')).find(
       (el) => el.querySelector('.branch-name')?.textContent === 'master'
     );
-    li?.click();
+    li?.querySelector('.branch-menu')?.click();
+  })()
+`);
+await sleep(300);
+await evalJs(`
+  (() => {
+    const b = Array.from(document.querySelectorAll('.ctx-menu button')).find(
+      (x) => x.textContent.trim() === 'Checkout'
+    );
+    b?.click();
   })()
 `);
 await sleep(1000);

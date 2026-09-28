@@ -1766,6 +1766,21 @@ fn ramas_y_tags_crear_renombrar_borrar() {
     assert_eq!(actual(), "vieja", "los rechazos no tocan HEAD");
     assert_eq!(names(), vec!["master", "nueva", "vieja"]);
 
+    // `target` (tip de la rama) debe coincidir con `git rev-parse <rama>`,
+    // no con HEAD: aquí HEAD está en "vieja" (c1), pero "nueva"/"master"
+    // apuntan al c2 posterior.
+    let target_of = |n: &str| -> String {
+        super::repo::branches(&dir)
+            .unwrap()
+            .into_iter()
+            .find(|b| b.name == n)
+            .unwrap()
+            .target
+    };
+    assert_eq!(target_of("vieja"), c1);
+    assert_eq!(target_of("nueva"), git_out(&["rev-parse", "master"]));
+    assert_eq!(target_of("master"), git_out(&["rev-parse", "master"]));
+
     // --- renombrar ---
     super::repo::rename_branch(&dir, "nueva", "renombrada").expect("renombrar");
     assert_eq!(names(), vec!["master", "renombrada", "vieja"]);
@@ -2549,11 +2564,11 @@ fn branches_parsea_locales_remotas_y_worktree() {
     use super::repo::parse_branch_lines_for_test as parse;
     const FS: char = '\u{1f}';
     let raw = format!(
-        "refs/heads/master{FS}origin/master{FS}/repo{FS}*{FS}origin{FS}refs/heads/master\n\
-         refs/heads/tigre{FS}origin/oso{FS}{FS}{FS}origin{FS}refs/heads/oso\n\
-         refs/heads/wt-target{FS}{FS}/otro/worktree{FS}{FS}{FS}\n\
-         refs/remotes/origin/master{FS}{FS}{FS}{FS}{FS}\n\
-         refs/remotes/origin/HEAD{FS}{FS}{FS}{FS}{FS}\n"
+        "refs/heads/master{FS}origin/master{FS}/repo{FS}*{FS}origin{FS}refs/heads/master{FS}aaa1\n\
+         refs/heads/tigre{FS}origin/oso{FS}{FS}{FS}origin{FS}refs/heads/oso{FS}bbb2\n\
+         refs/heads/wt-target{FS}{FS}/otro/worktree{FS}{FS}{FS}{FS}ccc3\n\
+         refs/remotes/origin/master{FS}{FS}{FS}{FS}{FS}{FS}ddd4\n\
+         refs/remotes/origin/HEAD{FS}{FS}{FS}{FS}{FS}{FS}eee5\n"
     );
     let branches = parse(&raw).expect("parseo de ramas");
     assert_eq!(branches.len(), 4, "origin/HEAD (puntero simbólico) debe descartarse");
@@ -2566,6 +2581,7 @@ fn branches_parsea_locales_remotas_y_worktree() {
     assert_eq!(master.worktree_path.as_deref(), Some("/repo"));
     assert_eq!(master.upstream_remote.as_deref(), Some("origin"));
     assert_eq!(master.upstream_ref.as_deref(), Some("refs/heads/master"));
+    assert_eq!(master.target, "aaa1");
 
     // Rama local que trackea una remota de OTRO nombre: `upstream` (para
     // mostrar) sale "origin/oso", pero `upstream_ref` es la ref REAL a la
@@ -2591,6 +2607,7 @@ fn branches_parsea_locales_remotas_y_worktree() {
     // Sin el prefijo del remoto: así `checkout` dispara el DWIM en vez de
     // dejar HEAD "detached" (comprobado en vivo contra git 2.55).
     assert_eq!(remote.checkout_arg, "master");
+    assert_eq!(remote.target, "ddd4");
 }
 
 #[test]

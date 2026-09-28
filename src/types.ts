@@ -76,6 +76,7 @@ export interface Branch {
   worktree_path: string | null;
   is_head: boolean;
   is_remote: boolean;
+  target: string;
 }
 
 export interface Tag {

@@ -537,6 +537,114 @@ try {
   check("Pull divergente: el mensaje traducido, no el stderr crudo", divMsg?.includes("No se puede hacer Pull") ?? false, divMsg ?? "null");
   check("Pull divergente: no menciona el hint crudo de git", divMsg ? !divMsg.includes("Diverging branches") : false, divMsg ?? "null");
 
+  // ===== 13. Clic en rama = ir a su commit, no checkout (Review 0.9.2) =====
+  // Bernardo: "el checkout con solo hacer click es demasiado agresivo".
+  // "feat" (local, no activa) ya existe en el fixture y su tip difiere de
+  // master tras las secciones 6/8/9/10 de arriba.
+  console.log("\n# 13. Clic en rama = ir a su commit (sin checkout)");
+  // La sección 12 dejó la única pestaña abierta en D1 (repo de divergencia):
+  // volver a A, donde vive "feat".
+  await reloadWith([rootA], rootA);
+  const headBefore13 = git(A, "rev-parse", "--abbrev-ref", "HEAD");
+  const featTarget = git(A, "rev-parse", "feat");
+  check("13. guardián: feat NO es la rama activa (si no, el test no prueba nada)", headBefore13 !== "feat", headBefore13);
+  await ev(`(() => {
+    const label = Array.from(document.querySelectorAll('.branch-group-label')).find((e) => e.textContent === 'Locales');
+    const row = Array.from(label.parentElement.querySelectorAll('.branch-item')).find((r) => r.querySelector('.branch-name')?.textContent === 'feat');
+    row.querySelector('.branch-name').click(); return 1; })()`);
+  await sleep(400);
+  check("13. HEAD no cambió (no hizo checkout)", git(A, "rev-parse", "--abbrev-ref", "HEAD") === headBefore13, git(A, "rev-parse", "--abbrev-ref", "HEAD"));
+  check("13. sin error", (await lastError()) === null);
+  check(
+    "13. quedó seleccionado el commit tip de feat",
+    await ev(`document.querySelector('.commit.sel')?.getAttribute('data-hash') === ${JSON.stringify(featTarget)}`),
+    featTarget,
+  );
+  // El scroller real es `section.commits` (overflow-y:auto), no
+  // `.commit-list` (flex, sin overflow propio) — medir contra el que no
+  // scrollea siempre da "dentro del viewport" y el check no prueba nada.
+  // Guardián de no-vacuidad: se fuerza `.commits` a una altura pequeña, se
+  // scrollea al fondo (saca la fila de "feat" — cerca del principio de la
+  // lista — fuera de vista) y se comprueba que empieza FUERA antes de fiarse
+  // de que el clic la trae de vuelta.
+  await ev(`(() => {
+    const el = document.querySelector('.commits');
+    el.dataset.e2ePrevHeight = el.style.height;
+    el.style.height = '80px';
+    el.scrollTop = el.scrollHeight;
+    return 1; })()`);
+  const rowInView = () =>
+    ev(`(() => {
+      const row = document.querySelector('.commit.sel');
+      const list = document.querySelector('.commits');
+      if (!row || !list) return false;
+      const r = row.getBoundingClientRect();
+      const l = list.getBoundingClientRect();
+      return r.top >= l.top - 1 && r.bottom <= l.bottom + 1; })()`);
+  check("13. guardián: tras forzar el scroll al fondo, la fila de feat empieza FUERA de vista", (await rowInView()) === false);
+  await ev(`(() => {
+    const label = Array.from(document.querySelectorAll('.branch-group-label')).find((e) => e.textContent === 'Locales');
+    const row = Array.from(label.parentElement.querySelectorAll('.branch-item')).find((r) => r.querySelector('.branch-name')?.textContent === 'feat');
+    row.querySelector('.branch-name').click(); return 1; })()`);
+  await sleep(400);
+  check("13. la fila quedó dentro del viewport tras el clic (scrollIntoView)", await rowInView());
+  await ev(`(() => {
+    const el = document.querySelector('.commits');
+    el.style.height = el.dataset.e2ePrevHeight;
+    return 1; })()`);
+  // Rama remota: mismo comportamiento (usa exactamente el mismo onClick).
+  await ev(`(() => {
+    const label = Array.from(document.querySelectorAll('.branch-group-label')).find((e) => e.textContent === 'Remotas');
+    const row = Array.from(label.parentElement.querySelectorAll('.branch-item')).find((r) => r.querySelector('.branch-name')?.textContent === 'origin/feat');
+    row.querySelector('.branch-name').click(); return 1; })()`);
+  await sleep(400);
+  check("13b. rama remota: HEAD sigue sin cambiar", git(A, "rev-parse", "--abbrev-ref", "HEAD") === headBefore13, git(A, "rev-parse", "--abbrev-ref", "HEAD"));
+  check(
+    "13b. rama remota: seleccionó su propio tip",
+    await ev(`document.querySelector('.commit.sel')?.getAttribute('data-hash') === ${JSON.stringify(git(A, "rev-parse", "origin/feat"))}`),
+  );
+  // El checkout sigue existiendo, pero solo desde el menú ⋯.
+  await openRowMenu("Locales", "feat");
+  await sleep(200);
+  const checkoutLabels = await menuLabels();
+  check("13c. el menú ⋯ sigue ofreciendo Checkout", checkoutLabels.includes("Checkout"), JSON.stringify(checkoutLabels));
+  await clickMenuItem("Checkout");
+  await sleep(800);
+  check("13c. Checkout desde el menú SÍ cambia de rama", git(A, "rev-parse", "--abbrev-ref", "HEAD") === "feat", git(A, "rev-parse", "--abbrev-ref", "HEAD"));
+  git(A, "checkout", "-q", "master"); // deja el repo como estaba para no afectar checks posteriores si se añaden
+
+  // ===== 13d. Filtro de rama activo: el tip de «feat» no está cargado =====
+  // Decisión de Lucas (2026-09-28): no-op con aviso, sin autolimpiar el
+  // filtro ni disparar "cargar más" — el title ya explica por qué, el clic
+  // simplemente no hace nada. Se comprueba que de verdad no cambia nada, no
+  // solo que no lanza (el checkout de 13c dejó el repo en "feat" por git
+  // crudo, así que se recarga primero).
+  console.log("\n# 13d. Clic en rama con filtro activo (tip no cargado): no-op con aviso");
+  await reloadWith([rootA], rootA);
+  await ev(`(() => {
+    const label = Array.from(document.querySelectorAll('.branch-group-label')).find((e) => e.textContent === 'Locales');
+    const row = Array.from(label.parentElement.querySelectorAll('.branch-item')).find((r) => r.querySelector('.branch-name')?.textContent === 'master');
+    row.querySelector('.branch-filter').click(); return 1; })()`);
+  await sleep(500);
+  check("13d. filtro de rama aplicado (chip «Viendo solo…»)", await ev("!!document.querySelector('.filter-info')"));
+  const feat13dTitle = await ev(`(() => {
+    const label = Array.from(document.querySelectorAll('.branch-group-label')).find((e) => e.textContent === 'Locales');
+    const row = Array.from(label.parentElement.querySelectorAll('.branch-item')).find((r) => r.querySelector('.branch-name')?.textContent === 'feat');
+    return row.title; })()`);
+  check("13d. el title avisa de que el tip no está en la lista cargada", feat13dTitle.includes("no está en la lista cargada"), feat13dTitle);
+  const selBefore13d = await ev("document.querySelector('.commit.sel')?.getAttribute('data-hash') ?? null");
+  await ev(`(() => {
+    const label = Array.from(document.querySelectorAll('.branch-group-label')).find((e) => e.textContent === 'Locales');
+    const row = Array.from(label.parentElement.querySelectorAll('.branch-item')).find((r) => r.querySelector('.branch-name')?.textContent === 'feat');
+    row.querySelector('.branch-name').click(); return 1; })()`);
+  await sleep(400);
+  check("13d. sin error", (await lastError()) === null);
+  check("13d. HEAD no cambió", git(A, "rev-parse", "--abbrev-ref", "HEAD") === "master", git(A, "rev-parse", "--abbrev-ref", "HEAD"));
+  check(
+    "13d. el clic fue un no-op de verdad: la selección no cambió",
+    (await ev("document.querySelector('.commit.sel')?.getAttribute('data-hash') ?? null")) === selBefore13d,
+  );
+
   check("sin errores de consola", consoleErrors.length === 0, consoleErrors.join(" | "));
 } finally {
   await restoreLS();
