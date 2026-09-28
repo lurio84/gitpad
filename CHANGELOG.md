@@ -4,6 +4,18 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-09-28
+
+### Changed
+
+- **El clic en una rama ya no hace checkout**: pedido de Bernardo ("es
+  demasiado agresivo") — ahora selecciona el commit al que apunta la rama,
+  sin cambiar de rama ni tocar el árbol de trabajo. El checkout real sigue
+  disponible en el menú "⋯" de la rama (clic derecho o botón), como antes.
+  Si el commit no está en la lista cargada (filtro de rama activo o
+  paginación), el clic no hace nada — el mensaje al pasar el ratón por
+  encima lo explica.
+
 ## [0.9.2] - 2026-09-24
 
 ### Fixed
